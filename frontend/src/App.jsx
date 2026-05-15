@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -59,6 +59,14 @@ function getList(payload, keys) {
   return [];
 }
 
+function getExperimentId(experiment) {
+  if (!experiment || typeof experiment !== "object") {
+    return "";
+  }
+
+  return experiment.id || experiment.experiment_id || experiment._id || "";
+}
+
 function findExperiment(payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -112,6 +120,38 @@ function pickLatestExperiment(experiments) {
   });
 
   return dated[0] || experiments[0];
+}
+
+function summarizeMetrics(metrics) {
+  if (!Array.isArray(metrics) || !metrics.length) {
+    return [];
+  }
+
+  const failedRequests = metrics.reduce(
+    (sum, metric) => sum + Number(metric.failed_requests || 0),
+    0,
+  );
+  const degradedRequests = metrics.reduce(
+    (sum, metric) => sum + Number(metric.degraded_count || 0),
+    0,
+  );
+  const averageLatencyMs = Number(
+    (
+      metrics.reduce((sum, metric) => sum + Number(metric.latency_ms || 0), 0) /
+      metrics.length
+    ).toFixed(2),
+  );
+  const fallbackUsed = metrics.some((metric) => {
+    const value = metric.fallback_used;
+    return value === true || value === 1 || value === "1";
+  });
+
+  return [
+    ["failed_requests", failedRequests],
+    ["degraded_requests", degradedRequests],
+    ["fallback_used", fallbackUsed],
+    ["average_latency_ms", averageLatencyMs],
+  ];
 }
 
 function formatValue(value) {
@@ -234,6 +274,7 @@ function App() {
   const [healthTimestamp, setHealthTimestamp] = useState("");
   const [experiments, setExperiments] = useState([]);
   const [latestExperimentOverride, setLatestExperimentOverride] = useState(null);
+  const [latestExperimentDetail, setLatestExperimentDetail] = useState(null);
   const [goldenTraces, setGoldenTraces] = useState([]);
   const [activeTrace, setActiveTrace] = useState(null);
   const [transactionResult, setTransactionResult] = useState(null);
@@ -246,10 +287,15 @@ function App() {
     analyze: false,
   });
 
-  const latestExperiment = useMemo(
+  const latestExperimentSummary = useMemo(
     () => latestExperimentOverride || pickLatestExperiment(experiments),
     [experiments, latestExperimentOverride],
   );
+  const latestExperiment =
+    getExperimentId(latestExperimentDetail) ===
+    getExperimentId(latestExperimentSummary)
+      ? latestExperimentDetail
+      : latestExperimentSummary;
 
   const fraudStatus = getServiceStatus(services, "fraud-check-service");
   const transactionStatus = getServiceStatus(services, "transaction-service");
@@ -343,6 +389,30 @@ function App() {
     });
   }, [apiFetch, runTask]);
 
+  const refreshExperimentDetail = useCallback(
+    async (experiment) => {
+      const experimentId = getExperimentId(experiment);
+
+      if (!experimentId) {
+        setLatestExperimentDetail(null);
+        return null;
+      }
+
+      return runTask(
+        "health",
+        async () => {
+          const detail = await apiFetch(
+            `/experiments/${encodeURIComponent(experimentId)}`,
+          );
+          setLatestExperimentDetail(detail);
+          return detail;
+        },
+        { keepError: true },
+      );
+    },
+    [apiFetch, runTask],
+  );
+
   useEffect(() => {
     refreshHealth({ keepError: true });
     refreshExperiments();
@@ -354,6 +424,20 @@ function App() {
 
     return () => window.clearInterval(intervalId);
   }, [refreshExperiments, refreshGoldenTraces, refreshHealth]);
+
+  useEffect(() => {
+    const summaryId = getExperimentId(latestExperimentSummary);
+    const detailId = getExperimentId(latestExperimentDetail);
+
+    if (!summaryId) {
+      setLatestExperimentDetail(null);
+      return;
+    }
+
+    if (summaryId !== detailId) {
+      refreshExperimentDetail(latestExperimentSummary);
+    }
+  }, [latestExperimentDetail, latestExperimentSummary, refreshExperimentDetail]);
 
   const runDemoTransaction = async () => {
     const payload = await runTask("transaction", async () =>
@@ -439,14 +523,17 @@ function App() {
     "recovery_time_ms",
   ];
 
+  const summarizedMetrics = summarizeMetrics(latestExperiment?.metrics);
   const availableMetrics = metricFields
-    .map((key) => [key, latestExperiment?.metrics?.[key] ?? latestExperiment?.[key]])
+    .map((key) => [key, latestExperiment?.[key]])
     .filter(([, value]) => value !== undefined && value !== null);
 
   const fallbackMetricEntries =
     availableMetrics.length > 0
       ? availableMetrics
-      : Object.entries(latestExperiment?.metrics || {}).slice(0, 8);
+      : summarizedMetrics.length
+        ? summarizedMetrics
+        : Object.entries(latestExperiment?.metrics || {}).slice(0, 8);
 
   const recommendations = Array.isArray(visibleTrace.developer_recommendations)
     ? visibleTrace.developer_recommendations

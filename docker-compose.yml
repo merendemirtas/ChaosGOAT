@@ -1,4 +1,15 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:4000
+    container_name: kintsugi-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - kintsugi-monkey-api
+
   kintsugi-monkey-api:
     build: ./backend/kintsugi-monkey-api
     container_name: kintsugi-monkey-api
@@ -7,7 +18,7 @@ services:
     environment:
       PORT: 4000
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       ACCOUNT_SERVICE_URL: http://account-service:4001
       TRANSACTION_SERVICE_URL: http://transaction-service:4002
       FRAUD_CHECK_SERVICE_URL: http://fraud-check-service:4003

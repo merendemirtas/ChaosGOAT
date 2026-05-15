@@ -1,7 +1,8 @@
 const { SAFE_DEGRADATION_MESSAGE } = require("./constants");
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
 
 function buildGeminiPrompt(metrics) {
   return `You are a senior SRE and resilience analyst for a banking microservice system.
@@ -70,45 +71,56 @@ async function analyzeWithGemini(metrics) {
     throw new Error("GEMINI_API_KEY is missing");
   }
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
+  const modelsToTry = [...new Set([GEMINI_MODEL, ...FALLBACK_MODELS].filter(Boolean))];
+  let lastError;
+
+  for (const model of modelsToTry) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [
               {
-                text: buildGeminiPrompt(metrics)
+                parts: [
+                  {
+                    text: buildGeminiPrompt(metrics)
+                  }
+                ]
               }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json"
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: "application/json"
+            }
+          })
         }
-      })
+      );
+
+      if (!response.ok) {
+        throw new Error(`Gemini request failed for ${model} with status ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const rawText =
+        payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
+
+      if (!rawText) {
+        throw new Error(`Gemini returned an empty response for ${model}`);
+      }
+
+      const parsed = JSON.parse(sanitizeJsonResponse(rawText));
+      return normalizeAnalysis(parsed, JSON.stringify({ model, response: rawText }));
+    } catch (error) {
+      lastError = error;
     }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Gemini request failed with status ${response.status}`);
   }
 
-  const payload = await response.json();
-  const rawText =
-    payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
-
-  if (!rawText) {
-    throw new Error("Gemini returned an empty response");
-  }
-
-  const parsed = JSON.parse(sanitizeJsonResponse(rawText));
-  return normalizeAnalysis(parsed, rawText);
+  throw lastError || new Error("Gemini analysis failed");
 }
 
 function buildFallbackAnalysis(metrics) {
