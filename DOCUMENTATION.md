@@ -1,8 +1,8 @@
 # Chaos GOAT — Kapsamlı Proje Dokümantasyonu
 
-> **Proje Adı:** Chaos GOAT (Kintsugi Monkey Banking)  
-> **Tür:** Kaos Mühendisliği Demo Platformu — Bankacılık Mikroservis Sistemi  
-> **Stack:** Node.js · Express · React 19 · SQLite · Docker · Gemini AI  
+> **Proje Adı:** Chaos GOAT (Kintsugi Monkey Banking)
+> **Tür:** Kaos Mühendisliği Demo Platformu — Bankacılık Mikroservis Sistemi
+> **Stack:** Node.js · Express · React 19 · SQLite · Docker · Gemini AI
 > **Felsefe:** Kintsugi — "Kırıkları altınla onar, zayıflıkları güce dönüştür"
 
 ---
@@ -33,16 +33,18 @@
 **Chaos GOAT**, bankacılık alanında çalışan mikroservis sistemlerinin arızalara karşı dayanıklılığını test etmek için tasarlanmış bir **Kaos Mühendisliği (Chaos Engineering)** platformudur.
 
 ### Temel Fikir
+
 Netflix, Google SRE ve AWS gibi büyük teknoloji şirketleri, sistemlerini kasıtlı olarak bozarak zayıf noktaları production'a çıkmadan keşfeder. Chaos GOAT bu yaklaşımı bankacılık senaryosuna uygular:
 
 - 8 mikroservis içeren simüle bir bankacılık sistemi kurulur
 - Servisler kontrollü şekilde bozulur (ağ gecikmesi, servis çökmesi, CPU baskısı vb.)
 - Gerçek işlem akışı (para transferi) bu bozunma altında test edilir
-- Google SRE metodolojisiyle risk skoru hesaplanır
-- Google Gemini AI, sonuçları analiz ederek geliştirici önerileri üretir
+- Google SRE metodolojisiyle 9 metrikli deterministik risk skoru hesaplanır
+- Google Gemini AI, sonuçları Türkçe analiz ederek geliştirici önerileri üretir
 
 ### Kintsugi Felsefesi
-Japon kintsugi sanatında kırık seramik altın eriğiyle onarılır — çatlaklar gizlenmez, görünür kılınır. Chaos GOAT da sistemin kırıklarını bulur ve bunları bilgi olarak değerlendirir.
+
+Japon kintsugi sanatında kırık seramik altın eriğiyle onarılır — çatlaklar gizlenmez, görünür kılınır. Chaos GOAT da sistemin kırıklarını bulur ve bunları kalıcı bilgiye (Golden Trace) dönüştürür.
 
 ---
 
@@ -50,7 +52,7 @@ Japon kintsugi sanatında kırık seramik altın eriğiyle onarılır — çatla
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    FRONTEND (React)                      │
+│                    FRONTEND (React 19)                   │
 │            localhost:5173 / Vite Dev Server              │
 └──────────────────────────┬──────────────────────────────┘
                            │ HTTP
@@ -64,25 +66,23 @@ Japon kintsugi sanatında kırık seramik altın eriğiyle onarılır — çatla
 │  └─────────────┘  └──────────────┘  └───────────────┘  │
 └──────────────────────────┬──────────────────────────────┘
                            │ HTTP (Docker network)
-         ┌─────────────────┼─────────────────────┐
-         │                 │                      │
-┌────────▼────────┐ ┌──────▼──────────┐ ┌────────▼────────┐
-│account-service  │ │transaction-svc  │ │fraud-check-svc  │
-│    :4001        │ │     :4002       │ │     :4003       │
-└─────────────────┘ └────────┬────────┘ └────────┬────────┘
-                             │                    │
-              ┌──────────────┼──────────────┐     │
-              │              │              │     │
-     ┌────────▼──┐  ┌────────▼──┐  ┌───────▼──┐  │
-     │  limit-   │  │beneficiary│  │compliance│  │
-     │  service  │  │  service  │  │  service │  │
-     │   :4006   │  │   :4007   │  │   :4008  │  │
-     └────────┬──┘  └────────┬──┘  └───────┬──┘  │
-              │              │              │     │
-              └──────────────┴──────────────┘     │
-                           account-service ◄───────┘
-                                                   │
-                                          ┌────────▼────────┐
+         ┌─────────────────┼───────────────────────┐
+         │                 │                        │
+┌────────▼────────┐ ┌──────▼──────────┐  ┌─────────▼───────┐
+│account-service  │ │transaction-svc  │  │fraud-check-svc  │
+│    :4001        │ │     :4002       │  │     :4003       │
+└─────────────────┘ └────────┬────────┘  └─────────┬───────┘
+                             │                      │
+              ┌──────────────┼──────────────┐       │
+              │              │              │       │
+     ┌────────▼──┐  ┌────────▼──┐  ┌───────▼──┐    │
+     │  limit-   │  │beneficiary│  │compliance│    │
+     │  service  │  │  service  │  │  service │    │
+     │   :4006   │  │   :4007   │  │   :4008  │    │
+     └────────┬──┘  └────────┬──┘  └──────────┘    │
+              └──────────────┴──► account-service   │
+                                                    │
+                                          ┌─────────▼───────┐
                                           │risk-profile-svc │
                                           │     :4005       │
                                           └─────────────────┘
@@ -122,7 +122,7 @@ transaction-service
   └── → notification-service   (notification side effect)
 ```
 
-**Kritik gözlem:** `account-service` çöktüğünde limit, beneficiary ve compliance servisleri de etkilenir — bu da transaction akışının tamamen durması demektir. Bu 4 derinlikli bağımlılık zinciri sistemin en kırılgan noktasıdır.
+**Kritik gözlem:** `account-service` çöktüğünde limit, beneficiary ve compliance servisleri de etkilenir → transaction akışı tamamen durur. Bu 4-derinlikli bağımlılık zinciri sistemin en kırılgan noktasıdır ve `account-service kill` senaryosunu **HIGH** risk yapar.
 
 ---
 
@@ -137,18 +137,6 @@ transaction-service
 | `GET` | `/health/services` | Tüm servislerin sağlık durumu + bağımlılık zinciri |
 | `GET` | `/topology` | Servis kayıt defteri ve bağımlılık grafiği |
 
-**GET /health/services** Yanıt Örneği:
-```json
-{
-  "services": [
-    { "name": "account-service", "status": "UP", "latencyMs": 12 },
-    { "name": "fraud-check-service", "status": "DOWN", "latencyMs": 2001 }
-  ],
-  "dependencyChains": [...],
-  "timestamp": "2026-05-16T10:00:00Z"
-}
-```
-
 ### Kaos Metodları
 
 | Method | Endpoint | Açıklama |
@@ -161,10 +149,7 @@ transaction-service
 |--------|----------|----------|
 | `POST` | `/banking/demo-transaction` | Demo işlem çalıştır (tekli veya toplu) |
 
-**POST /banking/demo-transaction** Body:
-```json
-{ "count": 1, "concurrency": 1 }
-```
+Body: `{ "count": 1, "concurrency": 1 }`
 
 ### Kaos Deneyleri
 
@@ -172,8 +157,6 @@ transaction-service
 |--------|----------|----------|
 | `POST` | `/experiments/run` | Kaos deneyi başlat |
 | `POST` | `/experiments/recover` | Aktif deneyi durdur ve sistemi kurtar |
-| `POST` | `/experiments/kill-fraud-check` | fraud-check kısa yol durdurma |
-| `POST` | `/experiments/recover-fraud-check` | fraud-check kısa yol kurtarma |
 | `POST` | `/experiments/:id/analyze` | Gemini AI ile deney analizi |
 | `GET` | `/experiments` | Tüm deneyleri listele |
 | `GET` | `/experiments/:id` | Deney detayları (metrikler + loglar dahil) |
@@ -198,34 +181,13 @@ transaction-service
   "target_service": "fraud-check-service",
   "fault_type": "network_delay",
   "status": "running",
-  "risk_score": 28.5,
-  "risk_level": "LOW",
+  "risk_score": 30.1,
+  "risk_level": "MEDIUM",
   "message": "fraud-check-service chaos injection active"
 }
 ```
 
-**POST /experiments/recover** Body:
-```json
-{ "experimentId": "exp_1747390000000" }
-```
-
-**POST /experiments/:id/analyze** — Body gerekmez. Yanıt:
-```json
-{
-  "id": "gt_1747390001000",
-  "experiment_id": "exp_1747390000000",
-  "chaos_method_classification": "Ağ Gecikmesi deneyi — gecikme kategorisi",
-  "summary": "fraud-check-service, 2000ms gecikme enjekte edilerek test edildi...",
-  "suspected_weak_point": "...",
-  "blast_radius": "...",
-  "risk_level": "LOW",
-  "risk_score": 28.5,
-  "developer_recommendations": ["...", "..."],
-  "analyzer": "gemini"
-}
-```
-
-### Golden Traces (AI Analiz Sonuçları)
+### Golden Traces
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
@@ -240,8 +202,8 @@ transaction-service
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| `GET` | `/health` | Servis durumu (chaos moduna göre UP/DEGRADED) |
-| `GET` | `/accounts/1` | Demo hesap bilgisi (acc_1001, 50.000 TRY) |
+| `GET` | `/health` | Servis durumu |
+| `GET` | `/accounts/1` | Demo hesap (acc_1001, 50.000 TRY) |
 | `GET` | `/chaos` | Mevcut chaos konfigürasyonu |
 | `POST` | `/chaos/configure` | Chaos enjeksiyonu yapılandır |
 | `POST` | `/chaos/reset` | Chaos durumunu sıfırla |
@@ -251,11 +213,11 @@ transaction-service
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
 | `GET` | `/health` | 5 bağımlılığın durumunu kontrol eder |
-| `POST` | `/transactions/demo` | Tam işlem akışı (limit → beneficiary → compliance → fraud → notification) |
+| `POST` | `/transactions/demo` | Tam işlem akışı: limit → beneficiary → compliance → fraud → notification |
 
-**İşlem Akışı Sonuç Durumları:**
-- `approved` — Tüm kontroller geçti, işlem onaylandı
-- `pending_manual_review` — Sahtecilik kontrolü başarısız/devre dışı (güvenli bozunma)
+**İşlem sonuç durumları:**
+- `approved` — Tüm kontroller geçti
+- `pending_manual_review` — Fraud kontrolü başarısız/devre dışı (güvenli bozunma)
 - `pending_limit_review` — Limit aşıldı
 - `failed` — Kritik bağımlılık hatası
 
@@ -264,20 +226,10 @@ transaction-service
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
 | `GET` | `/health` | risk-profile bağımlılığı kontrol |
-| `POST` | `/fraud/check` | İşlem için sahtecilik riski değerlendirmesi |
+| `POST` | `/fraud/check` | Sahtecilik riski değerlendirmesi |
 | `GET` | `/chaos` | Chaos durumu |
 | `POST` | `/chaos/configure` | Chaos yapılandır |
 | `POST` | `/chaos/reset` | Chaos sıfırla |
-
-**POST /fraud/check** Body:
-```json
-{
-  "transactionId": "txn_001",
-  "amount": 5000,
-  "fromAccount": "acc_1001",
-  "toAccount": "acc_2002"
-}
-```
 
 ### notification-service (Port 4004)
 
@@ -286,7 +238,7 @@ transaction-service
 | `GET` | `/health` | Her zaman UP (kritiklik: LOW) |
 | `POST` | `/notify` | Bildirim kuyruğa al |
 
-**Not:** notification-service'in çökmesi işlem akışını durdurmaz (side effect, kritik yol değil).
+**Not:** Çökmesi işlem akışını durdurmaz — transaction side effect, kritik yol değil.
 
 ### risk-profile-service (Port 4005)
 
@@ -294,24 +246,17 @@ transaction-service
 |--------|----------|----------|
 | `GET` | `/health` | Cache durumuna göre UP/DEGRADED |
 | `GET` | `/risk-profile/:accountId` | Müşteri risk profili |
-| `GET` | `/chaos` | Chaos durumu |
-| `POST` | `/chaos/configure` | Chaos yapılandır |
-| `POST` | `/chaos/reset` | Chaos sıfırla |
+| `GET/POST` | `/chaos/*` | Chaos kontrolü |
 
-**Risk Profil Yanıtı:**
-- `acc_1001`: `{ customerTier: "standard", riskBand: "LOW" }`
-- `acc_2002`: `{ customerTier: "watch", riskBand: "MEDIUM" }`
-- `cache_disconnect` aktifken: fallback path devreye girer, +700ms gecikme
+Profiller: `acc_1001` → LOW risk, `acc_2002` → MEDIUM risk. `cache_disconnect` aktifken +700ms fallback gecikmesi.
 
 ### limit-service (Port 4006)
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
 | `GET` | `/health` | account-service bağımlılığı kontrol |
-| `POST` | `/limits/check` | Günlük transfer limiti kontrol |
+| `POST` | `/limits/check` | Günlük transfer limiti kontrol (acc_1001: 15.000 TRY) |
 | `GET/POST` | `/chaos/*` | Chaos kontrolü |
-
-**Limit:** acc_1001 için günlük 15.000 TRY
 
 ### beneficiary-service (Port 4007)
 
@@ -321,8 +266,6 @@ transaction-service
 | `POST` | `/beneficiaries/validate` | Alıcı hesap doğrulama |
 | `GET/POST` | `/chaos/*` | Chaos kontrolü |
 
-**Alıcı Durumları:** `verified` (onaylı), `blocked` (engelli)
-
 ### compliance-service (Port 4008)
 
 | Method | Endpoint | Açıklama |
@@ -331,23 +274,23 @@ transaction-service
 | `POST` | `/compliance/check` | Uyumluluk kontrolü |
 | `GET/POST` | `/chaos/*` | Chaos kontrolü |
 
-**Uyumluluk Kuralı:** `amount <= max(1000, account.balance * 0.70)` ise onaylanır
+Kural: `amount <= max(1000, balance * 0.70)` ise onaylanır.
 
 ---
 
 ## 7. Kaos Metodları
 
-| Kod | Label | Kategori | Desteklenen Hedefler | Açıklama |
-|-----|-------|----------|----------------------|----------|
-| `service_kill` | Service Kill | availability | fraud-check, risk-profile, limit, account, beneficiary, compliance | Konteyneri tamamen durdurur |
-| `network_delay` | Network Delay | latency | fraud-check, risk-profile, limit, account, beneficiary, compliance | Yanıt gecikmesi enjekte eder |
-| `packet_loss` | Packet Loss | network_reliability | fraud-check, risk-profile, limit, account, beneficiary, compliance | Rastgele istekleri düşürür |
-| `cpu_stress` | CPU Stress | resource_pressure | fraud-check, risk-profile, limit, account, beneficiary, compliance | CPU döngüsü yakar |
-| `memory_stress` | Memory Stress | resource_pressure | fraud-check, risk-profile, limit, account, beneficiary, compliance | Bellek tahsis eder |
-| `db_disconnect` | DB Disconnect | dependency_loss | account-service (özel) | Hesap veri deposunu keser |
-| `cache_disconnect` | Cache Disconnect | dependency_loss | risk-profile-service (özel) | Risk önbelleğini keser |
-| `traffic_surge` | Traffic Surge | load | transaction-service (özel) | Yoğun eşzamanlı trafik gönderir |
-| `partial_failure` | Partial Failure | partial_outage | fraud-check, risk-profile, limit, account, beneficiary, compliance | Bazı istekler başarısız, bazıları geçer |
+| Kod | Label | Kategori | Desteklenen Hedefler |
+|-----|-------|----------|----------------------|
+| `service_kill` | Service Kill | availability | fraud-check, risk-profile, limit, account, beneficiary, compliance |
+| `network_delay` | Network Delay | latency | fraud-check, risk-profile, limit, account, beneficiary, compliance |
+| `packet_loss` | Packet Loss | network_reliability | fraud-check, risk-profile, limit, account, beneficiary, compliance |
+| `cpu_stress` | CPU Stress | resource_pressure | fraud-check, risk-profile, limit, account, beneficiary, compliance |
+| `memory_stress` | Memory Stress | resource_pressure | fraud-check, risk-profile, limit, account, beneficiary, compliance |
+| `db_disconnect` | DB Disconnect | dependency_loss | account-service (özel) |
+| `cache_disconnect` | Cache Disconnect | dependency_loss | risk-profile-service (özel) |
+| `traffic_surge` | Traffic Surge | load | transaction-service (özel) |
+| `partial_failure` | Partial Failure | partial_outage | fraud-check, risk-profile, limit, account, beneficiary, compliance |
 
 ### Varsayılan Chaos Konfigürasyonu
 
@@ -366,61 +309,53 @@ transaction-service
 
 ### Chaos Middleware Mekanizması
 
-Her mikroservis aynı chaos middleware yapısını destekler:
+Her servis `/chaos/configure` ile konfigüre edilir. Middleware her istekte:
 
-```
-POST /chaos/configure
-Body: {
-  "mode": "network_delay",
-  "latencyMs": 2000,
-  "packetLossRate": 0.35,
-  "cpuStressMs": 450,
-  "memoryStressMb": 48,
-  "partialFailureRate": 0.70
-}
-```
-
-Middleware her istek geldiğinde:
-1. `mode === "network_delay"` → `sleep(latencyMs)`
-2. `mode === "packet_loss"` → Rastgele `503` döndür
-3. `mode === "cpu_stress"` → CPU döngüsü yak
-4. `mode === "memory_stress"` → Buffer tahsis et
-5. `mode === "partial_failure"` → `partialFailureRate` oranında hata ver
+1. `network_delay` → `sleep(latencyMs)`
+2. `packet_loss` → Rastgele `%packetLossRate` oranında `503`
+3. `cpu_stress` → CPU döngüsü yak (cpuStressMs ms)
+4. `memory_stress` → Buffer tahsis et (memoryStressMb MB)
+5. `partial_failure` → `partialFailureRate` oranında hata
+6. `service_kill` → Docker container'ı durdurur (middleware değil, Docker API)
 
 ---
 
 ## 8. Risk Modeli
 
-**Dosya:** `backend/kintsugi-monkey-api/src/riskModel.js`  
+**Dosya:** `backend/kintsugi-monkey-api/src/riskModel.js`
 **Metodoloji:** Google SRE Error Budget + Netflix Resilience Score + AWS Resilience Hub
 
 ### Risk Eşik Değerleri
 
-| Seviye | Skor Aralığı | Anlamı |
-|--------|-------------|--------|
-| **LOW (DÜŞÜK)** | 0 – 31 | Fallback çalıştı, kurtarma hızlı, etki alanı dar |
-| **MEDIUM (ORTA)** | 32 – 62 | Bozunma gözlemlendi, kurtarma kabul edilebilir |
-| **HIGH (YÜKSEK)** | 63 – 100 | Tam kesinti, uzun kurtarma, geniş etki |
+| Seviye | Skor Aralığı | Tipik Senaryo |
+|--------|-------------|---------------|
+| **LOW (DÜŞÜK)** | 0 – 28 | notification-service kill, risk-profile cache_disconnect |
+| **MEDIUM (ORTA)** | 28 – 50 | fraud-check network_delay, limit-service kill |
+| **HIGH (YÜKSEK)** | 50 – 100 | account-service kill, fraud-check %70 packet_loss |
 
-### 9 Metrik ve Ağırlıkları
+### 10 Metrik ve Ağırlıkları
 
-| Metrik | Ağırlık | Açıklama |
-|--------|---------|----------|
-| MTTR (Kurtarma Süresi) | 0.20 | < 15s: 8, < 30s: 18, < 60s: 32, < 120s: 50, < 300s: 70, > 300s: 90 |
-| Servis Kritikliği | 0.12 | HIGH: 85, MEDIUM: 55, LOW: 30 (normalize edilmiş) |
-| Blast Radius (Etki Alanı) | 0.18 | Etkilenen servis sayısı / toplam servis sayısı |
-| Hata Oranı | 0.20 | Başarısız istek yüzdesi |
-| Bozunma Oranı | 0.12 | Fallback'e düşen istek yüzdesi |
-| P95 Gecikme | 0.08 | Kuyruk gecikmesi |
-| Bağımlılık Zinciri Derinliği | 0.06 | Bağımlılık grafında etki derinliği |
-| Kaos Metodu Şiddeti | 0.06 | service_kill: 1.0, cache_disconnect: 0.66 |
-| Eşzamanlı Hedef Sayısı | 0.08 | Aynı anda kaç servis hedeflendi |
-| **Güvenli Bozunma (Safe Degradation)** | **-0.10** | Aktif fallback riski düşürür |
+| Metrik | Ağırlık | Normalizasyon |
+|--------|---------|---------------|
+| MTTR (Kurtarma Süresi) | **0.20** | <15s→8, <30s→18, <60s→32, <120s→50, <300s→70, >300s→90 |
+| Servis Kritikliği | 0.12 | HIGH→85, MEDIUM→55, LOW→30 |
+| Blast Radius | **0.20** | (etkilenen/toplam)*100 |
+| **Hata/Bozunma Oranı** | **0.25** | (failed+degraded)/total — en dominant metrik |
+| Bozunma Oranı | 0.10 | degraded/total |
+| P95 Gecikme | 0.08 | latency/2000*100 |
+| Bağımlılık Zinciri Derinliği | 0.06 | depth/4*100 |
+| Kaos Metodu Şiddeti | 0.06 | service_kill=100, cache_disconnect=66 |
+| Eşzamanlı Hedef Sayısı | 0.07 | targets/3*100 |
+| **Güvenli Bozunma Kalitesi** | **-0.07** | Aktif fallback skoru düşürür (negatif ağırlık) |
 
-### Skor Hesaplama
+> **Önemli:** "Hata/Bozunma Oranı" `failedCount + degradedCount` kullanır. 70% packet_loss → 70% degraded → bu metrik 100 normalize edilir → HIGH risk tetiklenir.
 
-```javascript
-score = (Σ (normalizedValue[i] / 100 * weight[i])) / (Σ |weight[i]|) * 100
+> **Önemli:** `safe_degradation_relief` yalnızca gerçekten `degradedCount > 0` olduğunda aktif olur. Statik mesaj alanına bakılmaz.
+
+### Skor Hesaplama Formülü
+
+```
+score = (Σ normalizedValue[i]/100 * weight[i]) / (Σ |weight[i]|) * 100
 ```
 
 ### Sistem Resilience Skoru (Frontend)
@@ -428,16 +363,26 @@ score = (Σ (normalizedValue[i] / 100 * weight[i])) / (Σ |weight[i]|) * 100
 ```javascript
 // Kritiklik ağırlıkları: HIGH=1.5, MEDIUM=1.0, LOW=0.5
 weightedSum += (100 - experiment.risk_score) * criticalityWeight;
-systemScore = weightedSum / totalWeight;
+systemScore = weightedSum / totalWeight;  // 0-100 arası
 ```
+
+### Gerçek Test Sonuçları
+
+| Senaryo | Risk Skoru | Seviye |
+|---------|-----------|--------|
+| account-service service_kill | ~57 | **HIGH** |
+| fraud-check packet_loss %70 | ~52 | **HIGH** |
+| limit-service service_kill | ~50 | **MEDIUM** |
+| fraud-check network_delay 1200ms | ~30 | **MEDIUM** |
+| risk-profile cache_disconnect | ~26 | **LOW** |
 
 ---
 
 ## 9. Gemini AI Entegrasyonu
 
-**Dosya:** `backend/kintsugi-monkey-api/src/geminiAnalyzer.js`  
-**Model:** `gemini-2.5-flash` (fallback: `gemini-2.0-flash`, `gemini-1.5-flash`)  
-**API Key:** Environment variable `GEMINI_API_KEY`
+**Dosya:** `backend/kintsugi-monkey-api/src/geminiAnalyzer.js`
+**Model:** `gemini-2.5-flash` (fallback: `gemini-2.0-flash`, `gemini-1.5-flash`)
+**Dil:** Tüm yanıtlar Türkçe
 
 ### Gemini'ye Gönderilen Veri
 
@@ -448,18 +393,18 @@ systemScore = weightedSum / totalWeight;
   "service_metrics": [...],
   "incident_logs": [...],
   "risk_profile": {
-    "score": 28.5,
-    "level": "LOW",
+    "score": 57.5,
+    "level": "HIGH",
     "metrics": [...]
   }
 }
 ```
 
-### Gemini Çıktısı (JSON)
+### Gemini Çıktısı (JSON — Türkçe)
 
 ```json
 {
-  "chaos_method_classification": "Ağ Gecikmesi deneyi — gecikme kategorisi",
+  "chaos_method_classification": "Servis Durdurma deneyi — erişilebilirlik kategorisi",
   "summary": "...",
   "suspected_weak_point": "...",
   "blast_radius": "...",
@@ -469,36 +414,34 @@ systemScore = weightedSum / totalWeight;
   "developer_recommendations": ["...", "..."],
   "next_experiments": ["...", "..."],
   "kintsugi_lesson": "...",
-  "current_failure_probability": 25,
-  "improved_failure_probability": 12,
+  "current_failure_probability": 62,
+  "improved_failure_probability": 28,
   "probability_reasoning": "..."
 }
 ```
 
-### Hata Olasılığı Hesaplama Kuralları
+### Hata Olasılığı Aralıkları
 
-- **LOW risk:** current_failure_probability = 5–28
-- **MEDIUM risk:** current_failure_probability = 28–60
-- **HIGH risk:** current_failure_probability = 60–90
-- **Improved probability:** Öneriler uygulandıktan sonra beklenen, mevcut değerden 12–45 puan düşük
+| Risk Seviyesi | current_failure_probability |
+|---------------|----------------------------|
+| DÜŞÜK | 5 – 25 |
+| ORTA | 25 – 55 |
+| YÜKSEK | 50 – 90 |
+
+`improved_failure_probability` = mevcut değerden 12–45 puan düşük (öneriler uygulanınca).
 
 ### Fallback Analizör
 
-Gemini API erişilemez olduğunda `buildFallbackAnalysis()` devreye girer:
-- Tüm alanlar Türkçe, hardcoded
-- Risk skoru `riskModel.js` çıktısından alınır
-- Hata olasılığı MTTR + hata oranı + fallback kullanımına göre hesaplanır
+Gemini API erişilemezse `buildFallbackAnalysis()` devreye girer — Türkçe hardcoded analiz üretir, riskModel.js skorunu kullanır.
 
 ---
 
 ## 10. Veritabanı Şeması
 
-**Veritabanı:** SQLite  
+**Veritabanı:** SQLite
 **Dosya:** `backend/kintsugi-monkey-api/data/kintsugi-monkey.db`
 
-### Tablolar
-
-**experiments**
+### experiments
 ```
 id, domain, target_service, target_services (JSON),
 affected_service, affected_services (JSON),
@@ -511,33 +454,31 @@ risk_score, risk_level, risk_metrics (JSON),
 impact_chain (JSON), created_at
 ```
 
-**service_metrics**
+### service_metrics
 ```
 id, experiment_id, service_name, status,
 latency_ms, error_count, degraded_count,
 failed_requests, fallback_used, success_count,
-packet_loss_count, timeout_count,
-notes (JSON), timestamp
+packet_loss_count, timeout_count, notes (JSON), timestamp
 ```
 
-**incident_logs**
+### incident_logs
 ```
 id, experiment_id, level (INFO/WARN/ERROR),
 message, metadata_json, created_at
 ```
 
-**golden_traces** (AI Analiz Sonuçları)
+### golden_traces
 ```
 id, experiment_id, chaos_method_classification,
 summary, suspected_weak_point, blast_radius,
 risk_level, risk_score, risk_level_reasoning,
 safe_degradation_review, developer_recommendations (JSON),
 next_experiments (JSON), risk_metrics (JSON),
-kintsugi_lesson, translated_to,
-raw_ai_response, created_at
+kintsugi_lesson, translated_to, raw_ai_response, created_at
 ```
 
-**service_status**
+### service_status
 ```
 name, status, criticality, last_checked
 ```
@@ -546,162 +487,135 @@ name, status, criticality, last_checked
 
 ## 11. Frontend Sayfaları
 
-**Base URL:** `http://localhost:5173`  
-**Router:** React Router v6
+**Router:** React Router v6 | **Bileşenler:** Recharts, Lucide React
 
 ### Rota Haritası
 
 | Rota | Sayfa | Açıklama |
 |------|-------|----------|
-| `/onboarding` | Onboarding | İlk açılış ekranı, proje tanıtımı |
-| `/` | Dashboard | Topoloji grafiği + özet metrikler |
-| `/scenarios` | Senaryolar | Chaos engine + deney geçmişi |
-| `/reports` | Raporlar | Sistem skoru + risk grafikleri |
-| `/ai-suggests` | AI Önerileri | Gemini analizi + hata olasılığı |
+| `/onboarding` | Onboarding | İlk açılış ekranı |
+| `/` | Dashboard | Topoloji + istatistikler |
+| `/scenarios` | Senaryolar | Chaos Engine + geçmiş |
+| `/reports` | Raporlar | Resilience skoru + grafikler |
+| `/ai-suggests` | AI Önerileri | Gemini analizi + donut chart |
 
-### Onboarding Sayfası
-- İlk ziyarette otomatik gösterilir (`localStorage` kontrolü)
-- Projeyi ve Kintsugi felsefesini tanıtır
-- "Başla" butonuyla Dashboard'a yönlendirir
-- Tamamlandıktan sonra bir daha gösterilmez
+### Onboarding
+- `localStorage` kontrolüyle bir kez gösterilir
+- Kintsugi felsefesi ve proje tanıtımı
+- "Başla" → Dashboard
 
-### Dashboard Sayfası
-- **Topology Graph:** 8 servisi ve bağımlılıkları SVG force-layout ile gösterir
-  - UP: Yeşil nabız animasyonu
-  - DOWN: Kırmızı
-  - DEGRADED: Sarı
-- **Stat Kartları:** Toplam deney sayısı, başarı oranı, ortalama MTTR
-- **"Senaryo Oluştur" Butonu:** /scenarios'a yönlendirir
+### Dashboard
+- **TopologyGraph**: 8 servis SVG force-layout, UP/DOWN/DEGRADED renk kodlaması, nabız animasyonu
+- Toplam deney, başarı oranı, ortalama MTTR sayaçları
+- "Senaryo Oluştur" flow butonu
 
-### Senaryolar Sayfası
-- **Servis Durumu Grid'i:** 8 servis, gerçek zamanlı UP/DOWN/DEGRADED
-- **Chaos Engine Formu:**
-  - Kaos Metodu seçici (9 seçenek)
-  - Hedef servis listesi (metoda göre dinamik)
-  - Config sliders (gecikme, paket kaybı, CPU/bellek, vb.)
-  - "Chaos Başlat" / "Kurtarma Başlat" butonları
-  - Yüklenme durumları: "Başlatılıyor..." / "Kurtarılıyor..."
-- **Deney Geçmişi:** Son 5 deney, sayfalama ile
+### Senaryolar
+- **ServiceStatusGrid**: 8 servis gerçek zamanlı durum kartları (4s polling)
+- **İşlem Akışı**: Limit → Beneficiary → Fraud → Compliance → Notify → Tamamlandı
+- **Chaos Engine**:
+  - Kaos Metodu seçici (metoda göre desteklenen servisler güncellenir)
+  - Config slider'ları (gecikme, paket kaybı, CPU stres vb.)
+  - **Chaos Başlat**: Flame ikonu, kırmızı gradient, shimmer animasyonu
+  - **Kurtarmayı Başlat**: ShieldCheck ikonu, yeşil gradient, aktif deney nabız göstergesi
+- Deney geçmişi (5'li sayfalama)
 
-### Raporlar Sayfası
-- **Sistem Resilience Skoru:** Kritiklik ağırlıklı ortalama (0–100)
-- **Risk Dağılım Barları:** LOW / MEDIUM / HIGH deney sayıları
-- **Trend Grafiği:** Zaman içinde resilience skoru (Recharts LineChart)
-- **"AI ile Analiz Et" Butonu:** Son deneyi `/experiments/:id/analyze` ile gönderir, ardından AI Önerileri sayfasına geçer
+### Raporlar
+- **Sistem Resilience Skoru**: Kritiklik ağırlıklı (HIGH=1.5, MEDIUM=1.0, LOW=0.5)
+- **Risk Dağılım Barları**: LOW/MEDIUM/HIGH deney sayıları
+- **Trend Grafik**: Zaman içinde resilience (Recharts LineChart)
+- **"AI ile Analiz Et"**: Son deney analiz edilip AI Önerileri'ne yönlendirir
 
-### AI Önerileri Sayfası
-- **"Son Deneyi Analiz Et" Butonu:** Gemini analizi tetikler
-- **TraceCard Bölümleri:**
-  - Kaos Metodu Sınıflandırması
-  - Deney Özeti
-  - Şüpheli Zayıf Nokta
-  - Etki Alanı (Blast Radius)
-  - Risk Seviyesi ve Gerekçesi
-  - Güvenli Bozunma Değerlendirmesi
-  - Geliştirici Önerileri (madde madde)
-  - Sonraki Önerilen Deneyler
-  - Kintsugi Dersi
-- **Hata Olasılığı Kartı:**
-  - Apple tarzı animasyonlu donut chart (SVG + requestAnimationFrame)
-  - Mevcut hata ihtimali (%)
-  - Öneriler uygulanırsa beklenen iyileşme (%)
-  - Gemini AI'ın gerekçesi
-- **Golden Trace Geçmişi:** Son 5 analiz, sayfalama ile
+### AI Önerileri
+- **TraceCard**: Zayıf nokta, etki alanı, risk gerekçesi, güvenli bozunma, öneriler, sonraki deneyler, Kintsugi dersi
+- **Hata Olasılığı Kartı**:
+  - Apple tarzı animasyonlu SVG donut chart (`requestAnimationFrame`)
+  - Mevcut vs öneriler uygulandıktan sonra hata ihtimali
+  - Gemini AI gerekçesi
+- Golden Trace geçmişi (5'li sayfalama)
+- Raporlar sayfasından tetiklenebilir (`sessionStorage` flag)
 
 ---
 
 ## 12. Frontend Bileşenleri
 
 ### Layout.jsx
-- Üst navigasyon çubuğu (80px yükseklik)
-- Logo (logo3.png, 63x63px) + "CHAOS GOAT" brand
-- Aktif sekme: gradient arka plan + glow efekti
-- "CANLI" yeşil göstergesi
-- Ana içerik: `paddingTop: 92px`
+- Üst nav (80px), `paddingTop: 92px` içerik
+- Logo (logo3.png, 63×63), "CHAOS GOAT" brand
+- Aktif sekme: gradient + glow + border efekti
+- "CANLI" yeşil nabız göstergesi
 
 ### TopologyGraph.jsx
-- SVG tabanlı force-layout servis topolojisi
-- 8 düğüm: servis adı + kritiklik seviyesi
+- SVG force-layout, 8 düğüm
+- UP: yeşil nabız animasyonu | DOWN: kırmızı | DEGRADED: sarı
 - Yönlü oklar + Türkçe kenar etiketleri
-- UP servislerde nabız animasyonu
-- DOWN servislerde kırmızı renk
-- Gerçek zamanlı health polling
+- 4s polling ile gerçek zamanlı güncelleme
 
 ### AnimatedBackground.jsx
-- Canvas tabanlı animasyonlu arka plan
-- Koyu taban (#010205)
-- 3 ambient orb (altın, mavi, teal) — yavaş sürükleme
-- Yıldız alanı
-- Altın parçacık ağı
-- Vignette efekti
+- Canvas: koyu taban (#010205)
+- 3 ambient orb (altın, mavi, teal) yavaş sürükleme
+- Yıldız alanı + altın parçacık ağı + vignette
 
 ---
 
 ## 13. Veri Akışı — Bir Deney Nasıl Çalışır?
 
 ```
-Kullanıcı: "Chaos Başlat" → fraud-check-service + network_delay
+Kullanıcı: Chaos Başlat → fraud-check-service + network_delay (1200ms)
         ↓
 POST /experiments/run
-{target_service: "fraud-check-service", chaos_method: "network_delay"}
         ↓
 runChaosExperiment()
-  1. Aktif deney kontrolü (409 if exists)
-  2. Deney kaydı oluştur (SQLite)
-  3. POST /chaos/configure → fraud-check-service:4003
-     {mode: "network_delay", latencyMs: 1200}
+  1. Aktif deney var mı? → 409 hatası
+  2. SQLite'a experiment kaydı oluştur
+  3. POST /chaos/configure → fraud-check:4003 { mode: "network_delay", latencyMs: 1200 }
   4. 12 demo transaction gönder (seri)
-     → transaction-service → fraud-check (1200ms gecikme)
-     → Her istek: approved / pending_manual_review / failed
-  5. Tüm servislerin snapshot'ını al
-  6. computeRiskProfile() ile skor hesapla
-  7. Deney kaydını güncelle (risk_score, risk_level)
+     → her biri: transaction → fraud-check (1200ms gecikme) → approved / pending / failed
+  5. Tüm 8 servisin snapshot'ını al
+  6. computeRiskProfile() → 10 metrik, skor: 30.1, level: MEDIUM
+  7. Experiment kaydını güncelle
         ↓
-Yanıt: {id: "exp_xxx", risk_score: 28.5, risk_level: "LOW"}
+Yanıt: { id: "exp_xxx", risk_score: 30.1, risk_level: "MEDIUM" }
         ↓
-Kullanıcı: "Kurtarma Başlat"
+Kullanıcı: Kurtarmayı Başlat
         ↓
 POST /experiments/recover
-  1. POST /chaos/reset → fraud-check-service
+  1. POST /chaos/reset → fraud-check:4003
   2. Tüm servisler UP olana kadar bekle (max 20s)
   3. recovery_time_ms hesapla
-  4. Deney status = "completed"
-  5. Final risk skoru hesapla
+  4. status = "completed", final risk skoru hesapla
         ↓
-Kullanıcı: "Analiz Et"
+Kullanıcı: AI ile Analiz Et (Raporlar) veya Son Deneyi Analiz Et (AI Önerileri)
         ↓
 POST /experiments/:id/analyze
-  1. Deney detaylarını çek
-  2. computeRiskProfile() çalıştır
-  3. analyzeWithGemini(payload) — Türkçe prompt
-  4. Gemini: JSON yanıt (risk, öneriler, olasılıklar)
-  5. Golden Trace kaydı oluştur
-  6. Yanıt frontend'e
+  1. computeRiskProfile() → deterministik skor
+  2. analyzeWithGemini(payload) → Türkçe JSON yanıt
+  3. Golden Trace kaydı oluştur (SQLite)
+  4. Frontend'e dön: öneriler + hata olasılıkları + Kintsugi dersi
 ```
 
 ---
 
 ## 14. Güvenli Bozunma Mekanizması
 
-**Safe Degradation Message:**  
-`"Transactions moved to pending manual review instead of auto-approval."`
+**Safe Degradation Message:** `"Transactions moved to pending manual review instead of auto-approval."`
 
 ### Nasıl Çalışır?
 
-`fraud-check-service` çöktüğünde veya yavaşladığında, `transaction-service` işlemi reddetmek yerine **manuel inceleme** kuyruğuna alır:
+`fraud-check-service` çöktüğünde / yavaşladığında, `transaction-service` işlemi reddetmek yerine **manuel inceleme** kuyruğuna alır:
 
 ```
 Normal akış:        transaction → fraud-check → APPROVED
-Bozunma altında:    transaction → fraud-check (DOWN) → pending_manual_review
+Bozunma altında:    transaction → fraud-check (DOWN/SLOW) → pending_manual_review
 ```
 
-Bu bankacılık açısından güvenlidir çünkü:
+Bu bankacılık açısından güvenlidir:
 - İşlem reddedilmez (müşteri deneyimi korunur)
 - Otomatik onaylanmaz (güvenlik korunur)
-- Bir insan inceleyene kadar bekler
+- İnsan inceleyene kadar bekler
 
 ### Risk Modeline Etkisi
-`safe_degradation_relief` metriği ağırlığı **-0.10** (negatif, skoru düşürür). Fallback aktifse LOW risk mümkün hale gelir.
+
+`safe_degradation_relief` metriği (ağırlık: **-0.07**) yalnızca `degradedCount > 0` olduğunda aktif olur. Aktif fallback skoru düşürür — fakat `failure_rate` metriği artık `failed + degraded` saydığı için yüksek bozunma oranı skoru yine de HIGH'a çeker.
 
 ---
 
@@ -709,14 +623,15 @@ Bu bankacılık açısından güvenlidir çünkü:
 
 ### Gereksinimler
 - Docker & Docker Compose
-- Node.js 18+ (yerel geliştirme için)
 - Gemini API Key
 
 ### Başlatma
 
 ```bash
-# Proje dizinine git
 cd GOATS-kintsugimonkey
+
+# .env dosyası oluştur
+echo "GEMINI_API_KEY=AIzaSy..." > .env
 
 # Tüm servisleri başlat
 docker compose up --build
@@ -725,36 +640,39 @@ docker compose up --build
 # API:      http://localhost:4000
 ```
 
-### Ortam Değişkenleri
+### Kritik: Kaynak Kod Değişikliklerini Uygulamak
 
-`backend/kintsugi-monkey-api/.env`:
-```
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
-PORT=4000
-```
-
-### Servis Durumu Kontrolü
+`kintsugi-monkey-api` kaynak kodunu image içine kopyalar. `docker restart` **yetmez**:
 
 ```bash
-curl http://localhost:4000/health/services
+docker compose up --build kintsugi-monkey-api -d
 ```
 
-### Manuel Kaos Testi (Terminal)
+### Örnek Terminal Deneyleri
 
 ```bash
-# Chaos başlat
+# HIGH risk: account-service durdur
 curl -X POST http://localhost:4000/experiments/run \
   -H "Content-Type: application/json" \
-  -d '{"target_service":"fraud-check-service","chaos_method":"service_kill","config":{}}'
+  -d '{"target_service":"account-service","chaos_method":"service_kill","config":{}}'
+
+# MEDIUM risk: fraud-check ağ gecikmesi
+curl -X POST http://localhost:4000/experiments/run \
+  -H "Content-Type: application/json" \
+  -d '{"target_service":"fraud-check-service","chaos_method":"network_delay","config":{"latencyMs":1800}}'
+
+# LOW risk: risk-profile cache kesintisi
+curl -X POST http://localhost:4000/experiments/run \
+  -H "Content-Type: application/json" \
+  -d '{"target_service":"risk-profile-service","chaos_method":"cache_disconnect","config":{}}'
 
 # Kurtarma
 curl -X POST http://localhost:4000/experiments/recover \
   -H "Content-Type: application/json" \
-  -d '{"experimentId":"exp_XXXXX"}'
+  -d '{"experimentId":"exp_XXXX"}'
 
-# Analiz
-curl -X POST http://localhost:4000/experiments/exp_XXXXX/analyze
+# AI analizi
+curl -X POST http://localhost:4000/experiments/exp_XXXX/analyze
 ```
 
 ---
@@ -765,68 +683,67 @@ curl -X POST http://localhost:4000/experiments/exp_XXXXX/analyze
 
 **Anlat:**
 - Bankacılık sistemlerinde neden kaos mühendisliği gerekli?
-  - Production'da bir servis çökerse ne olur? (Netflix 2008, AWS 2012 örnekleri)
-  - BDDK/PCI-DSS uyumu için sistem dayanıklılık testleri zorunlu hale geliyor
-- Kintsugi felsefesi: "Kırıkları gizlemek yerine görünür kıl, güçlendir"
-- Mimari: 8 mikroservis, nasıl birbirine bağlı?
+  - Production'da servis çöktüğünde ne olur?
+  - BDDK/PCI-DSS uyumu için dayanıklılık testleri zorunlu hale geliyor
+- Kintsugi felsefesi: "Kırıkları gizlemek yerine görünür kıl"
+- Mimari: 8 mikroservis, dependency zinciri neden önemli?
 
-**Göster:** Dashboard → Topology Graph üzerinde bağımlılık zincirini anlat
+**Göster:** Dashboard → Topology Graph
 
-**Kritik mesaj:** "account-service çöktüğünde neden 4 servis etkilenir?" sorusunu cevapla
+**Kritik mesaj:** "account-service çöktüğünde neden 4 servis etkilenir?"
 
 ---
 
 ### Kişi 2 — "Chaos Engine ve Canlı Demo" (4–5 dk)
 
 **Anlat:**
-- 9 kaos metodu ve kategorileri (availability, latency, load...)
-- Chaos middleware: Her servis kendi kaos enjeksiyonunu yönetir
-- `/chaos/configure` → Middleware devreye girer → İstekler bozulur
+- 9 kaos metodu ve kategorileri
+- Chaos middleware: `/chaos/configure` → middleware devreye girer
+- Risk modeli: 9 metrik, Google SRE metodolojisi
 
-**Demo:**
-1. Senaryolar → `notification-service` + `network_delay` → "Chaos Başlat"
-2. "Başlatılıyor..." spinner'ı izlet
-3. Risk skorunu göster (LOW olmalı — notification-service kritiklik LOW)
-4. "Kurtarma Başlat" → recovery_time_ms izlet
+**Demo (sırasıyla):**
+1. `risk-profile + cache_disconnect` → LOW (26/100)
+2. `fraud-check + network_delay` → MEDIUM (~30/100)
+3. `account-service + service_kill` → HIGH (~57/100)
 
-**Kritik mesaj:** "Risk skoru Google SRE metodolojisiyle 9 metrikten hesaplanıyor — sadece downtime'a bakılmıyor"
+**Kritik mesaj:** "Skor deterministik — sadece recovery time'a bakılmıyor, 9 metrik var"
 
 ---
 
 ### Kişi 3 — "AI Analizi ve Değer" (3–4 dk)
 
 **Anlat:**
-- Raporlar: Sistem Resilience Skoru nasıl hesaplanıyor?
-  - Kritiklik ağırlıklı ortalama (HIGH servisleri daha fazla etkiler)
+- Raporlar: Sistem Resilience Skoru (0–100)
+  - Kritiklik ağırlıklı ortalama
   - LOW/MEDIUM/HIGH dağılımı
 - AI Önerileri: Gemini 2.5 Flash Türkçe analiz
-  - Zayıf nokta tespiti, geliştirici önerileri, sonraki deneyler
-  - Donut chart: "Şu an %XX hata ihtimali → öneriler uygulanırsa %YY"
-- Kintsugi dersi: Her deney bir ders
+  - Zayıf nokta, öneriler, sonraki deneyler
+  - Donut chart: "Şu an %XX → öneriler ile %YY"
+- Kintsugi dersi: her deney bir Golden Trace
 
-**Göster:** Raporlar → "AI ile Analiz Et" → AI Önerileri sayfası açılır → Donut chart animasyonu
+**Göster:** Raporlar → "AI ile Analiz Et" → AI Önerileri sayfası → Donut animasyonu
 
-**Kritik mesaj:** "Deterministik skor (riskModel.js) AI'dan bağımsız çalışır — Gemini sadece yorumlar, objektif metrik değişmez"
-
----
-
-### Jüri Soruları İçin Hazırlık
-
-**"Gerçek production'da nasıl kullanılır?"**  
-→ Chaos endpoint'leri feature flag ile kontrol edilir. Test/staging ortamında aktif, production'da devre dışı. Netflix'in ChAOS aracı da bu prensibi kullanır.
-
-**"Gemini analizi ne kadar güvenilir?"**  
-→ Deterministic risk skoru (riskModel.js) AI'dan bağımsız hesaplanır. Gemini sadece yorumlama yapar. Eğer Gemini erişilemezse fallback analyzer devreye girer — sistem çalışmayı sürdürür.
-
-**"Neden 8 servis? Gerçekçi mi?"**  
-→ Gerçek bankacılık sistemleri 200+ mikroservis içerir. Bu 8 servis; hesap, işlem, sahtecilik, bildirim, risk profili, limit, alıcı ve uyumluluk — bankacılık para transferinin minimal ama eksiksiz modelidir.
-
-**"Safe degradation her zaman işe yarar mı?"**  
-→ Hayır. Sahtecilik kontrolü hiç çalışmadan onaylama güvenlik riski yaratır. Bu yüzden pending_manual_review seçildi — işlemi ne reddet ne de otomatik onayla, bir insan baksın.
-
-**"Sistem Resilience Skoru 58-65 — iyi mi?"**  
-→ Google SRE'de %99.9 SLO hedefi vardır; buraya göre 85+ "iyi"dir. 58-65 "geliştirme alanı var" demektir — bu hackathon demo'sunda kasıtlı olarak orta seviye tutulmuştur, gerçek sistemde Kintsugi önerileri uygulanınca 80+'a çıkacağı hesaplanmaktadır.
+**Kritik mesaj:** "Deterministik skor AI'dan bağımsız — Gemini sadece yorumlar, nesnel metrik değişmez"
 
 ---
 
-*Bu dokümantasyon Chaos GOAT v1.0 için hazırlanmıştır. Tüm servisler Türkçe arayüz ile sunulmaktadır.*
+### Jüri Soruları için Hazırlık
+
+**"Gerçek production'da nasıl kullanılır?"**
+→ `/chaos/configure` endpoint'leri feature flag ile kontrol edilir. Test/staging'de aktif, production'da devre dışı. Netflix'in ChAOS aracı da bu prensibi kullanır.
+
+**"Gemini analizi ne kadar güvenilir?"**
+→ Deterministik skor riskModel.js'ten bağımsız hesaplanır. Gemini sadece yorumlama yapar. Gemini erişilemezse fallback analyzer devreye girer.
+
+**"Neden bankacılık?"**
+→ Finans sektöründe BDDK/PCI-DSS uyumu için sistem dayanıklılık testleri zorunlu hale geliyor. 8 servis, bankacılık para transferinin minimal ama eksiksiz modelidir.
+
+**"Safe degradation her zaman işe yarar mı?"**
+→ Hayır. Fraud kontrolü olmadan otomatik onay güvenlik riski. Bu yüzden pending_manual_review — ne reddet, ne otomatik onayla.
+
+**"Sistem Resilience Skoru 58–65 — iyi mi?"**
+→ Google SRE'de 85+ iyi kabul edilir. 58–65 "geliştirme alanı var" demektir. Kintsugi önerileri uygulanınca 80+'a çıkması hesaplanmaktadır.
+
+---
+
+*Chaos GOAT v1.0 — Tüm arayüz Türkçe, servis isimleri İngilizce.*

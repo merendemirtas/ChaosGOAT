@@ -1,229 +1,170 @@
-# Kintsugi Monkey Banking
+# Chaos GOAT — Kaos Mühendisliği Platformu
 
-Kintsugi Monkey Banking is a hackathon chaos engineering playground for a banking microservice system. It now includes chained service dependencies, multiple chaos methods, deterministic risk scoring, and Gemini-based incident analysis.
+> **Kintsugi felsefesi:** Kırıkları altınla onar — zayıflıkları güce dönüştür.
 
-## Architecture
+Bankacılık mikroservis sistemleri için kontrollü kaos deneyi, deterministik risk skorlama ve Gemini AI destekli analiz platformu.
 
-Service chains:
+---
 
-- `transaction-service -> limit-service -> account-service`
-- `transaction-service -> beneficiary-service -> account-service`
-- `transaction-service -> compliance-service -> account-service`
-- `transaction-service -> fraud-check-service -> risk-profile-service`
-- `transaction-service -> notification-service`
-
-Service inventory:
-
-- `frontend` on `5173`
-- `kintsugi-monkey-api` on `4000`
-- `account-service` on `4001`
-- `transaction-service` on `4002`
-- `fraud-check-service` on `4003`
-- `notification-service` on `4004`
-- `risk-profile-service` on `4005`
-- `limit-service` on `4006`
-- `beneficiary-service` on `4007`
-- `compliance-service` on `4008`
-
-## Supported Chaos Methods
-
-Implemented and testable in this repo:
-
-- `service_kill`
-- `network_delay`
-- `packet_loss`
-- `cpu_stress`
-- `memory_stress`
-- `db_disconnect`
-- `cache_disconnect`
-- `traffic_surge`
-- `partial_failure`
-
-These are implemented in a demo-safe way:
-
-- `service_kill` uses Docker stop/start
-- `network_delay`, `packet_loss`, `cpu_stress`, `memory_stress`, and `partial_failure` are injected at the service layer
-- `db_disconnect` is simulated in `account-service`
-- `cache_disconnect` is simulated in `risk-profile-service`
-- `traffic_surge` is executed by concurrent transaction bursts from `kintsugi-monkey-api`
-- `experiments/run` supports `target_services`, so one run can break several services at the same time
-
-## Risk Model
-
-Risk is scored numerically and categorized as `LOW`, `MEDIUM`, or `HIGH`.
-
-The UI shows:
-
-- per-metric percentage bars
-- normalized metric scores
-- final total risk score
-- final risk level
-- a dedicated `simultaneous_targets` metric so multi-service failures are penalized faster
-
-Detailed methodology and weights:
-
-- [docs/RISK_MODEL.md](/Users/efe/Desktop/GOATSkintsugimonkey/docs/RISK_MODEL.md)
-
-## Gemini Output
-
-- Gemini runs only on the backend.
-- If Gemini fails, deterministic fallback analysis is used.
-- Translation was intentionally deferred so the stack stays lean and quick to rebuild.
-- Golden Trace now focuses on summary, weak point, blast radius, risk reasoning, safe degradation review, and developer recommendations.
-
-## How To Run
-
-Set environment values if needed:
+## Hızlı Başlangıç
 
 ```bash
-export GEMINI_API_KEY=your_key_here
-export GEMINI_MODEL=gemini-2.5-flash
-```
+# API anahtarını ayarla
+export GEMINI_API_KEY=your_gemini_api_key_here
 
-Start the full stack:
-
-```bash
+# Tüm stack'i başlat (ilk seferinde ~2 dakika)
 docker compose up --build
+
+# Frontend → http://localhost:5173
+# API      → http://localhost:4000
 ```
 
-Open:
+---
 
-- Frontend: [http://localhost:5173](http://localhost:5173)
-- API: [http://localhost:4000](http://localhost:4000)
+## Mimari
 
-Stop:
-
-```bash
-docker compose down
+```
+Frontend (5173) → kintsugi-monkey-api (4000)
+                        │
+        ┌───────────────┼───────────────────┐
+        │               │                   │
+  account (4001)  transaction (4002)  fraud-check (4003)
+        │               │                   │
+  limit (4006)    beneficiary (4007)  risk-profile (4005)
+  compliance (4008)  notification (4004)
 ```
 
-## Important Demo Note
+**Bağımlılık zinciri:**
+- `transaction → fraud-check → risk-profile`
+- `transaction → limit → account`
+- `transaction → beneficiary → account`
+- `transaction → compliance → account`
+- `transaction → notification`
 
-`kintsugi-monkey-api` mounts `/var/run/docker.sock:/var/run/docker.sock` so it can stop and start containers during chaos experiments. This is strictly for demo purposes and must not be used as-is in production.
+---
 
-## Key Endpoints
+## Servisler
 
-### Frontend
+| Servis | Port | Kritiklik |
+|--------|------|-----------|
+| kintsugi-monkey-api | 4000 | Gateway |
+| account-service | 4001 | HIGH |
+| transaction-service | 4002 | HIGH |
+| fraud-check-service | 4003 | HIGH |
+| notification-service | 4004 | LOW |
+| risk-profile-service | 4005 | MEDIUM |
+| limit-service | 4006 | HIGH |
+| beneficiary-service | 4007 | HIGH |
+| compliance-service | 4008 | HIGH |
 
-- `GET /` on port `5173`
+---
 
-### Main API
+## Kaos Metodları
 
-- `GET /health/services`
-- `GET /topology`
-- `GET /chaos/methods`
-- `POST /banking/demo-transaction`
-  Body may include `count` and `concurrency`.
-- `POST /experiments/run`
-- `POST /experiments/recover`
-- `POST /experiments/:id/analyze`
-- `GET /experiments`
-- `GET /experiments/:id`
-- `GET /golden-traces`
-- `GET /golden-traces/:id`
+| Kod | Kategori | Açıklama |
+|-----|----------|----------|
+| `service_kill` | availability | Docker container durdurur |
+| `network_delay` | latency | Yanıt gecikmesi enjekte eder |
+| `packet_loss` | network_reliability | Rastgele istekleri düşürür |
+| `cpu_stress` | resource_pressure | CPU döngüsü yakar |
+| `memory_stress` | resource_pressure | Bellek baskısı uygular |
+| `db_disconnect` | dependency_loss | account-service veri deposunu keser |
+| `cache_disconnect` | dependency_loss | risk-profile önbelleğini keser |
+| `traffic_surge` | load | Eşzamanlı istek patlaması |
+| `partial_failure` | partial_outage | Kısmi başarısızlık enjekte eder |
 
-### Internal Services
+---
 
-- `account-service`
-  - `GET /health`
-  - `GET /accounts/1`
-  - `POST /chaos/configure`
-  - `POST /chaos/reset`
-- `limit-service`
-  - `GET /health`
-  - `POST /limits/check`
-  - `POST /chaos/configure`
-  - `POST /chaos/reset`
-- `fraud-check-service`
-  - `GET /health`
-  - `POST /fraud/check`
-  - `POST /chaos/configure`
-  - `POST /chaos/reset`
-- `risk-profile-service`
-  - `GET /health`
-  - `GET /risk-profile/:accountId`
-  - `POST /chaos/configure`
-  - `POST /chaos/reset`
-- `beneficiary-service`
-  - `GET /health`
-  - `POST /beneficiaries/validate`
-  - `POST /chaos/configure`
-  - `POST /chaos/reset`
-- `compliance-service`
-  - `GET /health`
-  - `POST /compliance/check`
-  - `POST /chaos/configure`
-  - `POST /chaos/reset`
-- `notification-service`
-  - `GET /health`
-  - `POST /notify`
+## Risk Modeli
 
-## Quick Test Flow
+9 metrik, Google SRE + Netflix + AWS metodolojisi:
 
-Health:
+| Eşik | Aralık |
+|------|--------|
+| **DÜŞÜK** | 0 – 28 |
+| **ORTA** | 28 – 50 |
+| **YÜKSEK** | > 50 |
+
+Risk skoru deterministik hesaplanır. Gemini AI sadece yorumlama yapar.
+
+---
+
+## API Endpointleri
 
 ```bash
+# Servis sağlığı
+GET  /health/services
+GET  /topology
+
+# Kaos deneyleri
+POST /experiments/run         { target_service, chaos_method, config }
+POST /experiments/recover     { experimentId }
+GET  /experiments
+GET  /experiments/:id
+
+# AI Analizi
+POST /experiments/:id/analyze
+
+# Sonuçlar
+GET  /golden-traces
+GET  /golden-traces/:id
+
+# Test işlemi
+POST /banking/demo-transaction { count, concurrency }
+```
+
+---
+
+## Örnek Kullanım
+
+```bash
+# Servis durumu
 curl http://localhost:4000/health/services
-```
 
-Normal transaction:
-
-```bash
-curl -X POST http://localhost:4000/banking/demo-transaction \
-  -H "Content-Type: application/json" \
-  -d '{ "count": 5, "concurrency": 2 }'
-```
-
-Run a delay experiment:
-
-```bash
+# account-service durdur (HIGH risk senaryosu)
 curl -X POST http://localhost:4000/experiments/run \
   -H "Content-Type: application/json" \
-  -d '{
-    "target_service": "fraud-check-service",
-    "chaos_method": "network_delay",
-    "config": { "latencyMs": 1800, "requestCount": 8 }
-  }'
-```
+  -d '{"target_service":"account-service","chaos_method":"service_kill","config":{}}'
 
-Recover the running experiment:
-
-```bash
+# Kurtarma
 curl -X POST http://localhost:4000/experiments/recover \
   -H "Content-Type: application/json" \
-  -d '{}'
-```
+  -d '{"experimentId":"exp_XXXX"}'
 
-Run a traffic surge:
-
-```bash
+# fraud-check ağ gecikmesi (MEDIUM risk senaryosu)
 curl -X POST http://localhost:4000/experiments/run \
   -H "Content-Type: application/json" \
-  -d '{
-    "target_service": "transaction-service",
-    "chaos_method": "traffic_surge",
-    "config": { "requestCount": 16, "concurrency": 4 }
-  }'
-```
+  -d '{"target_service":"fraud-check-service","chaos_method":"network_delay","config":{"latencyMs":1800}}'
 
-Analyze:
+# risk-profile cache kesintisi (LOW risk senaryosu)
+curl -X POST http://localhost:4000/experiments/run \
+  -H "Content-Type: application/json" \
+  -d '{"target_service":"risk-profile-service","chaos_method":"cache_disconnect","config":{}}'
 
-```bash
+# AI analizi
 curl -X POST http://localhost:4000/experiments/<EXPERIMENT_ID>/analyze
 ```
 
-Golden traces:
+---
+
+## Frontend Sayfaları
+
+| Sayfa | URL | İçerik |
+|-------|-----|--------|
+| Onboarding | `/onboarding` | Proje tanıtımı |
+| Dashboard | `/` | Topoloji grafiği + istatistikler |
+| Senaryolar | `/scenarios` | Chaos Engine + deney geçmişi |
+| Raporlar | `/reports` | Resilience skoru + trend grafikleri |
+| AI Önerileri | `/ai-suggests` | Gemini analizi + hata olasılığı |
+
+---
+
+## Önemli Not
+
+`kintsugi-monkey-api`, `service_kill` deneyleri için Docker socket'e (`/var/run/docker.sock`) erişir. Bu yalnızca demo ortamı içindir.
+
+Kaynak kodu değiştirdiğinizde `docker restart` **yetmez**, rebuild gerekir:
 
 ```bash
-curl http://localhost:4000/golden-traces
+docker compose up --build kintsugi-monkey-api -d
 ```
-
-## Frontend Notes
-
-- The frontend calls only `kintsugi-monkey-api`.
-- The topology panel reflects actual dependency chains from `/topology`.
-- The chaos control panel is driven by `/chaos/methods`.
-- Risk bars are driven by deterministic `risk_metrics`.
-- Transaction count is selectable from the dashboard.
-- Multiple target services can be selected in the chaos form.
-- Golden Trace text currently returns in English.
