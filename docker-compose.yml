@@ -10,6 +10,47 @@ services:
     depends_on:
       - kintsugi-monkey-api
 
+  risk-profile-service:
+    build: ./backend/risk-profile-service
+    container_name: kintsugi-risk-profile-service
+    ports:
+      - "4005:4005"
+    environment:
+      PORT: 4005
+
+  limit-service:
+    build: ./backend/limit-service
+    container_name: kintsugi-limit-service
+    ports:
+      - "4006:4006"
+    environment:
+      PORT: 4006
+      ACCOUNT_SERVICE_URL: http://account-service:4001
+    depends_on:
+      - account-service
+
+  beneficiary-service:
+    build: ./backend/beneficiary-service
+    container_name: kintsugi-beneficiary-service
+    ports:
+      - "4007:4007"
+    environment:
+      PORT: 4007
+      ACCOUNT_SERVICE_URL: http://account-service:4001
+    depends_on:
+      - account-service
+
+  compliance-service:
+    build: ./backend/compliance-service
+    container_name: kintsugi-compliance-service
+    ports:
+      - "4008:4008"
+    environment:
+      PORT: 4008
+      ACCOUNT_SERVICE_URL: http://account-service:4001
+    depends_on:
+      - account-service
+
   kintsugi-monkey-api:
     build: ./backend/kintsugi-monkey-api
     container_name: kintsugi-monkey-api
@@ -23,7 +64,10 @@ services:
       TRANSACTION_SERVICE_URL: http://transaction-service:4002
       FRAUD_CHECK_SERVICE_URL: http://fraud-check-service:4003
       NOTIFICATION_SERVICE_URL: http://notification-service:4004
-      FRAUD_CHECK_CONTAINER_NAME: kintsugi-fraud-check-service
+      RISK_PROFILE_SERVICE_URL: http://risk-profile-service:4005
+      LIMIT_SERVICE_URL: http://limit-service:4006
+      BENEFICIARY_SERVICE_URL: http://beneficiary-service:4007
+      COMPLIANCE_SERVICE_URL: http://compliance-service:4008
       DATABASE_PATH: /app/data/kintsugi-monkey.db
     volumes:
       - ./backend/kintsugi-monkey-api/data:/app/data
@@ -33,6 +77,10 @@ services:
       - transaction-service
       - fraud-check-service
       - notification-service
+      - risk-profile-service
+      - limit-service
+      - beneficiary-service
+      - compliance-service
 
   account-service:
     build: ./backend/account-service
@@ -50,8 +98,16 @@ services:
     environment:
       PORT: 4002
       FRAUD_CHECK_SERVICE_URL: http://fraud-check-service:4003
+      LIMIT_SERVICE_URL: http://limit-service:4006
+      BENEFICIARY_SERVICE_URL: http://beneficiary-service:4007
+      COMPLIANCE_SERVICE_URL: http://compliance-service:4008
+      NOTIFICATION_SERVICE_URL: http://notification-service:4004
     depends_on:
       - fraud-check-service
+      - limit-service
+      - beneficiary-service
+      - compliance-service
+      - notification-service
 
   fraud-check-service:
     build: ./backend/fraud-check-service
@@ -60,6 +116,9 @@ services:
       - "4003:4003"
     environment:
       PORT: 4003
+      RISK_PROFILE_SERVICE_URL: http://risk-profile-service:4005
+    depends_on:
+      - risk-profile-service
 
   notification-service:
     build: ./backend/notification-service

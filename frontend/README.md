@@ -31,7 +31,9 @@ The frontend only calls the backend REST API. It does not call Gemini directly a
 3. Open the Vite local URL in the browser.
 4. Use **Refresh Health** to verify service state.
 5. Use **Run Demo Transaction** to show the normal banking path.
-6. Use **Break fraud-check-service** to create a controlled failure.
-7. Run another demo transaction and show **Safe Degradation Activated** when manual review is used.
-8. Use **Analyze Last Experiment** to load the **Golden Trace** and **Gemini Analysis**.
-9. Use **Recover fraud-check-service** to restore service health.
+6. Use **Run Chaos** to inject `service_kill`, `network_delay`, `packet_loss`, `cpu_stress`, `memory_stress`, `db_disconnect`, `cache_disconnect`, `traffic_surge`, or `partial_failure`.
+7. Select one or more target services when the chosen chaos method supports multi-target runs.
+8. Set the transaction count in the banking panel if you want batched transaction results.
+9. Watch service chains and risk bars react in the dashboard.
+10. Use **Analyze Last Experiment** to load the **Golden Trace** and Gemini commentary.
+11. Use **Recover Experiment** to clear long-running chaos injections.

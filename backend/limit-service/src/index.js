@@ -1,19 +1,12 @@
 const express = require("express");
 const cors = require("cors");
 
-const PORT = Number(process.env.PORT || 4001);
+const PORT = Number(process.env.PORT || 4006);
+const ACCOUNT_SERVICE_URL = process.env.ACCOUNT_SERVICE_URL || "http://account-service:4001";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-const accountRecord = {
-  accountId: "acc_1001",
-  owner: "Demo User",
-  balance: 50000,
-  currency: "TRY",
-  dailyTransferLimit: 15000
-};
 
 let requestCounter = 0;
 let retainedMemory = [];
@@ -54,6 +47,30 @@ function normalizeChaosConfig(input = {}) {
   };
 }
 
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 2000);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function applyRequestChaos() {
   requestCounter += 1;
 
@@ -66,13 +83,13 @@ async function applyRequestChaos() {
   }
 
   if (chaosState.memoryStressMb > 0) {
-    retainedMemory = [Buffer.alloc(chaosState.memoryStressMb * 1024 * 1024, 7)];
+    retainedMemory = [Buffer.alloc(chaosState.memoryStressMb * 1024 * 1024, 9)];
   } else {
     retainedMemory = [];
   }
 
   if (chaosState.mode === "packet_loss" && Math.random() < chaosState.packetLossRate) {
-    const error = new Error("Simulated packet loss in account-service.");
+    const error = new Error("Simulated packet loss in limit-service.");
     error.statusCode = 504;
     throw error;
   }
@@ -84,59 +101,61 @@ async function applyRequestChaos() {
         : Math.random() < chaosState.partialFailureRate;
 
     if (shouldFail) {
-      const error = new Error("Simulated partial failure in account-service.");
+      const error = new Error("Simulated partial failure in limit-service.");
       error.statusCode = 503;
       throw error;
     }
   }
 }
 
-function getHealthStatus() {
-  if (chaosState.mode === "db_disconnect") {
-    return "DEGRADED";
+async function getAccountHealth() {
+  try {
+    const payload = await fetchJson(`${ACCOUNT_SERVICE_URL}/health`, { timeoutMs: 1500 });
+    return payload.status || "UP";
+  } catch (_error) {
+    return "DOWN";
   }
+}
 
-  if (
+app.get("/health", async (_req, res) => {
+  const dependencyStatus = await getAccountHealth();
+  const status =
+    dependencyStatus === "DOWN" ||
     ["network_delay", "packet_loss", "cpu_stress", "memory_stress", "partial_failure"].includes(
       chaosState.mode
     )
-  ) {
-    return "DEGRADED";
-  }
+      ? "DEGRADED"
+      : "UP";
 
-  return "UP";
-}
-
-app.get("/health", (_req, res) => {
   res.json({
-    service: "account-service",
-    status: getHealthStatus(),
-    dependency: "internal-account-db",
-    dependencyStatus: chaosState.mode === "db_disconnect" ? "DOWN" : "UP",
+    service: "limit-service",
+    status,
+    dependency: "account-service",
+    dependencyStatus,
     chaosMode: chaosState.mode
   });
 });
 
-app.get("/accounts/1", async (_req, res) => {
+app.post("/limits/check", async (req, res) => {
+  const { accountId = "acc_1001", amount = 0 } = req.body || {};
+
   try {
     await applyRequestChaos();
 
-    if (chaosState.mode === "db_disconnect") {
-      return res.status(503).json({
-        service: "account-service",
-        status: "DEGRADED",
-        message: "Account datastore unavailable due to simulated DB disconnect."
-      });
-    }
+    const account = await fetchJson(`${ACCOUNT_SERVICE_URL}/accounts/1`, { timeoutMs: 2500 });
+    const approved = amount <= Number(account.dailyTransferLimit || 0);
 
     return res.json({
-      ...accountRecord,
+      accountId,
+      approved,
+      remainingLimit: Math.max(0, Number(account.dailyTransferLimit || 0) - Number(amount || 0)),
       dependencyStatus: "UP"
     });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      service: "account-service",
-      status: "DEGRADED",
+    return res.status(error.statusCode || 503).json({
+      accountId,
+      approved: false,
+      dependencyStatus: "DOWN",
       message: error.message
     });
   }
@@ -144,7 +163,7 @@ app.get("/accounts/1", async (_req, res) => {
 
 app.get("/chaos", (_req, res) => {
   res.json({
-    service: "account-service",
+    service: "limit-service",
     chaos: chaosState
   });
 });
@@ -153,7 +172,7 @@ app.post("/chaos/configure", (req, res) => {
   chaosState = normalizeChaosConfig(req.body);
 
   res.json({
-    service: "account-service",
+    service: "limit-service",
     chaos: chaosState,
     status: "configured"
   });
@@ -164,12 +183,12 @@ app.post("/chaos/reset", (_req, res) => {
   retainedMemory = [];
 
   res.json({
-    service: "account-service",
+    service: "limit-service",
     chaos: chaosState,
     status: "reset"
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`[account-service] listening on port ${PORT}`);
+  console.log(`[limit-service] listening on port ${PORT}`);
 });

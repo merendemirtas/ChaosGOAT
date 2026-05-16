@@ -18,14 +18,18 @@ const {
   upsertServiceStatus
 } = require("./db");
 const { analyzeWithGemini, buildFallbackAnalysis } = require("./geminiAnalyzer");
-const { SAFE_DEGRADATION_MESSAGE, SERVICE_REGISTRY } = require("./constants");
+const { computeRiskProfile, summarizeRequestMetrics } = require("./riskModel");
+const {
+  CHAOS_DEFAULT_CONFIG,
+  CHAOS_METHODS,
+  SAFE_DEGRADATION_MESSAGE,
+  SERVICE_DEPENDENCIES,
+  SERVICE_REGISTRY
+} = require("./constants");
 
 const PORT = Number(process.env.PORT || 4000);
 const TRANSACTION_SERVICE_URL =
   process.env.TRANSACTION_SERVICE_URL || "http://transaction-service:4002";
-const FRAUD_CHECK_CONTAINER_NAME =
-  process.env.FRAUD_CHECK_CONTAINER_NAME || "kintsugi-fraud-check-service";
-const EXPERIMENT_TRANSACTION_SAMPLES = Number(process.env.EXPERIMENT_TRANSACTION_SAMPLES || 5);
 
 const execFileAsync = promisify(execFile);
 
@@ -37,9 +41,50 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildExperimentId() {
+  return `exp_${Date.now()}`;
+}
+
+function buildGoldenTraceId() {
+  return `gt_${Date.now()}`;
+}
+
+function getServiceConfig(name) {
+  return SERVICE_REGISTRY.find((service) => service.name === name);
+}
+
+function getChaosMethodConfig(code) {
+  return CHAOS_METHODS.find((item) => item.code === code);
+}
+
+function normalizeTargetServices(targetServices, targetService) {
+  const list = Array.isArray(targetServices) && targetServices.length
+    ? targetServices
+    : [targetService];
+
+  return [...new Set(list.map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function normalizeChaosConfig(method, config = {}) {
+  return {
+    mode: method,
+    latencyMs: Number(config.latencyMs ?? CHAOS_DEFAULT_CONFIG.latencyMs),
+    packetLossRate: Number(config.packetLossRate ?? CHAOS_DEFAULT_CONFIG.packetLossRate),
+    cpuStressMs: Number(config.cpuStressMs ?? CHAOS_DEFAULT_CONFIG.cpuStressMs),
+    memoryStressMb: Number(config.memoryStressMb ?? CHAOS_DEFAULT_CONFIG.memoryStressMb),
+    partialFailureRate: Number(
+      config.partialFailureRate ?? CHAOS_DEFAULT_CONFIG.partialFailureRate
+    ),
+    partialFailurePattern:
+      config.partialFailurePattern || CHAOS_DEFAULT_CONFIG.partialFailurePattern,
+    requestCount: Number(config.requestCount ?? CHAOS_DEFAULT_CONFIG.requestCount),
+    concurrency: Number(config.concurrency ?? CHAOS_DEFAULT_CONFIG.concurrency)
+  };
+}
+
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 2000);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 2500);
 
   try {
     const response = await fetch(url, {
@@ -51,45 +96,35 @@ async function fetchJson(url, options = {}) {
       signal: controller.signal
     });
 
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+
     if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+      const error = new Error(
+        typeof payload === "object" && payload?.message
+          ? payload.message
+          : `Request failed with status ${response.status}`
+      );
+      error.statusCode = response.status;
+      error.payload = payload;
+      throw error;
     }
 
-    return await response.json();
+    return payload;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function buildExperimentId() {
-  return `exp_${Date.now()}`;
-}
-
-function buildGoldenTraceId() {
-  return `gt_${Date.now()}`;
-}
-
 async function runDockerCommand(action, containerName) {
-  try {
-    const { stdout, stderr } = await execFileAsync("docker", [action, containerName]);
-    return { stdout: stdout.trim(), stderr: stderr.trim() };
-  } catch (error) {
-    const stderr = error.stderr || error.message || "";
-
-    if (action === "stop" && stderr.includes("is not running")) {
-      return { stdout: "", stderr };
-    }
-
-    if (action === "start" && stderr.includes("is already running")) {
-      return { stdout: "", stderr };
-    }
-
-    throw error;
-  }
+  const { stdout, stderr } = await execFileAsync("docker", [action, containerName]);
+  return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
 async function checkServiceHealth(service) {
-  const started = Date.now();
+  const startedAt = Date.now();
 
   try {
     const body = await fetchJson(`${service.url}${service.healthPath}`, { timeoutMs: 2000 });
@@ -99,44 +134,429 @@ async function checkServiceHealth(service) {
     return {
       name: service.name,
       status,
-      latencyMs: Date.now() - started,
+      latencyMs: Date.now() - startedAt,
       body
     };
   } catch (error) {
     await upsertServiceStatus(service.name, "DOWN", service.criticality);
-
     return {
       name: service.name,
       status: "DOWN",
-      latencyMs: Date.now() - started,
+      latencyMs: Date.now() - startedAt,
       error: error.message
     };
   }
 }
 
-async function waitForFraudServiceRecovery() {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    try {
-      const fraudService = SERVICE_REGISTRY.find((service) => service.name === "fraud-check-service");
-      await fetchJson(`${fraudService.url}${fraudService.healthPath}`, { timeoutMs: 1500 });
-      return true;
-    } catch (_error) {
-      await sleep(1000);
+async function snapshotAllServices() {
+  const snapshots = [];
+  for (const service of SERVICE_REGISTRY) {
+    snapshots.push(await checkServiceHealth(service));
+  }
+  return snapshots;
+}
+
+async function waitForServicesToBeUp({ maxAttempts = 20, delayMs = 1000 } = {}) {
+  let lastSnapshot = [];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    lastSnapshot = await snapshotAllServices();
+
+    if (lastSnapshot.every((service) => service.status === "UP")) {
+      return lastSnapshot;
+    }
+
+    await sleep(delayMs);
+  }
+
+  return lastSnapshot;
+}
+
+async function configureServiceChaos(targetService, chaosConfig) {
+  const service = getServiceConfig(targetService);
+
+  if (!service || !service.controlPath) {
+    throw new Error(`Service ${targetService} does not support chaos configuration.`);
+  }
+
+  return fetchJson(`${service.url}${service.controlPath}/configure`, {
+    method: "POST",
+    body: JSON.stringify(chaosConfig),
+    timeoutMs: 3000
+  });
+}
+
+async function resetServiceChaos(targetService) {
+  const service = getServiceConfig(targetService);
+
+  if (!service || !service.controlPath) {
+    return null;
+  }
+
+  return fetchJson(`${service.url}${service.controlPath}/reset`, {
+    method: "POST",
+    body: JSON.stringify({}),
+    timeoutMs: 3000
+  });
+}
+
+async function invokeDemoTransaction() {
+  const startedAt = Date.now();
+
+  try {
+    const result = await fetchJson(`${TRANSACTION_SERVICE_URL}/transactions/demo`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      timeoutMs: 5000
+    });
+
+    return {
+      ...result,
+      latencyMs: Date.now() - startedAt,
+      outcome: "success",
+      degraded: Boolean(result.degraded || result.status === "pending_manual_review")
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      degraded: false,
+      outcome: "failed",
+      latencyMs: Date.now() - startedAt,
+      error: error.message
+    };
+  }
+}
+
+async function runBatchedRequests(requestCount, concurrency) {
+  const results = [];
+
+  for (let index = 0; index < requestCount; index += concurrency) {
+    const batch = [];
+    for (let offset = 0; offset < concurrency && index + offset < requestCount; offset += 1) {
+      batch.push(invokeDemoTransaction());
+    }
+    const batchResults = await Promise.all(batch);
+    results.push(...batchResults);
+  }
+
+  return results;
+}
+
+function affectedServicesFromSnapshot(snapshot) {
+  return snapshot
+    .filter((item) => item.status !== "UP")
+    .map((item) => item.name);
+}
+
+function buildImpactChain(affectedServices) {
+  return SERVICE_DEPENDENCIES.filter(
+    (edge) =>
+      affectedServices.includes(edge.from) ||
+      affectedServices.includes(edge.to)
+  );
+}
+
+async function persistServiceSnapshot(experimentId, snapshot, requestSummary) {
+  for (const serviceState of snapshot) {
+    await addServiceMetric({
+      experiment_id: experimentId,
+      service_name: serviceState.name,
+      status: serviceState.status,
+      latency_ms: serviceState.latencyMs,
+      error_count: serviceState.status === "DOWN" ? 1 : 0,
+      degraded_count: serviceState.status === "DEGRADED" ? 1 : 0,
+      failed_requests: requestSummary.failedRequests,
+      fallback_used: requestSummary.fallbackUsed,
+      success_count: requestSummary.successfulRequests,
+      packet_loss_count: 0,
+      timeout_count: 0,
+      notes: serviceState.body || { error: serviceState.error || null },
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
+function buildExperimentResponse(experiment, message) {
+  return {
+    id: experiment.id,
+    target_service: experiment.target_service,
+    target_services: experiment.target_services || [experiment.target_service].filter(Boolean),
+    affected_service: experiment.affected_service,
+    fault_type: experiment.fault_type,
+    chaos_method_category: experiment.chaos_method_category,
+    status: experiment.status,
+    message,
+    risk_score: experiment.risk_score,
+    risk_level: experiment.risk_level
+  };
+}
+
+async function runChaosExperiment({ targetService, targetServices, chaosMethod, config = {} }) {
+  const existing = await getLatestRunningExperiment();
+  if (existing) {
+    const error = new Error("A chaos experiment is already running.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const normalizedTargets = normalizeTargetServices(targetServices, targetService);
+  const chaosMethodConfig = getChaosMethodConfig(chaosMethod);
+
+  if (!normalizedTargets.length) {
+    const error = new Error("At least one target service is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const targets = normalizedTargets.map((serviceName) => {
+    const service = getServiceConfig(serviceName);
+
+    if (!service) {
+      const error = new Error(`Unknown target service: ${serviceName}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!chaosMethodConfig || !chaosMethodConfig.supportedTargets.includes(serviceName)) {
+      const error = new Error(`Chaos method ${chaosMethod} is not supported for ${serviceName}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return service;
+  });
+
+  const startedAt = new Date().toISOString();
+  const normalizedConfig = normalizeChaosConfig(chaosMethod, config);
+  const experiment = {
+    id: buildExperimentId(),
+    domain: "banking",
+    target_service: normalizedTargets.join(", "),
+    target_services: normalizedTargets,
+    affected_service: "transaction-service",
+    fault_type: chaosMethod,
+    chaos_method_category: chaosMethodConfig.category,
+    status: chaosMethod === "traffic_surge" ? "completed" : "running",
+    started_at: startedAt,
+    ended_at: chaosMethod === "traffic_surge" ? startedAt : null,
+    recovery_time_ms: chaosMethod === "traffic_surge" ? 0 : null,
+    safe_degradation: SAFE_DEGRADATION_MESSAGE,
+    chaos_config: normalizedConfig,
+    created_at: startedAt
+  };
+
+  await createExperiment(experiment);
+  await addIncidentLog({
+    experiment_id: experiment.id,
+    level: "INFO",
+    message: `Chaos experiment started with method ${chaosMethod} on ${normalizedTargets.join(", ")}.`,
+    metadata_json: {
+      targetServices: normalizedTargets,
+      chaosMethod,
+      config: normalizedConfig
+    },
+    created_at: startedAt
+  });
+
+  if (chaosMethod === "service_kill") {
+    for (const target of targets) {
+      await runDockerCommand("stop", target.containerName);
+    }
+    await sleep(800);
+  } else if (chaosMethod !== "traffic_surge") {
+    for (const target of targets) {
+      await configureServiceChaos(target.name, normalizedConfig);
     }
   }
 
-  return false;
+  const responses =
+    chaosMethod === "traffic_surge"
+      ? await runBatchedRequests(normalizedConfig.requestCount, normalizedConfig.concurrency)
+      : await runBatchedRequests(normalizedConfig.requestCount, 1);
+
+  const serviceSnapshot = await snapshotAllServices();
+  const affectedServices = [
+    ...new Set([
+      ...normalizedTargets,
+      ...affectedServicesFromSnapshot(serviceSnapshot),
+      ...responses.filter((item) => item.degraded).map(() => "transaction-service")
+    ])
+  ];
+  const metricSummary = summarizeRequestMetrics(responses);
+  const impactChain = buildImpactChain(affectedServices);
+
+  await persistServiceSnapshot(experiment.id, serviceSnapshot, metricSummary);
+
+  for (const result of responses) {
+    await addIncidentLog({
+      experiment_id: experiment.id,
+      level: result.outcome === "failed" ? "ERROR" : result.degraded ? "WARN" : "INFO",
+      message:
+        result.outcome === "failed"
+          ? "Transaction request failed during chaos experiment."
+          : result.degraded
+            ? "Transaction request entered safe degradation during chaos experiment."
+            : "Transaction request completed successfully during chaos experiment.",
+      metadata_json: result,
+      created_at: new Date().toISOString()
+    });
+  }
+
+  const riskProfile = computeRiskProfile(
+    {
+      ...experiment,
+      target_services: normalizedTargets,
+      affected_services: affectedServices,
+      request_count: metricSummary.requestCount,
+      success_count: metricSummary.successfulRequests,
+      failed_count: metricSummary.failedRequests,
+      degraded_count: metricSummary.degradedRequests,
+      average_latency_ms: metricSummary.averageLatencyMs,
+      p95_latency_ms: metricSummary.p95LatencyMs,
+      peak_latency_ms: metricSummary.peakLatencyMs,
+      impact_chain: impactChain
+    },
+    {
+      affected_services: affectedServices,
+      metric_summary: metricSummary
+    }
+  );
+
+  const updatedExperiment = await updateExperiment(experiment.id, {
+    affected_services: affectedServices,
+    request_count: metricSummary.requestCount,
+    success_count: metricSummary.successfulRequests,
+    failed_count: metricSummary.failedRequests,
+    degraded_count: metricSummary.degradedRequests,
+    average_latency_ms: Number(metricSummary.averageLatencyMs.toFixed(2)),
+    p95_latency_ms: Number(metricSummary.p95LatencyMs.toFixed(2)),
+    peak_latency_ms: Number(metricSummary.peakLatencyMs.toFixed(2)),
+    risk_score: riskProfile.score,
+    risk_level: riskProfile.level,
+    risk_metrics: riskProfile.metrics,
+    impact_chain: impactChain,
+    status: experiment.status,
+    ended_at: experiment.ended_at,
+    recovery_time_ms: experiment.recovery_time_ms
+  });
+
+  return buildExperimentResponse(
+    updatedExperiment,
+    chaosMethod === "traffic_surge"
+      ? `${normalizedTargets.join(", ")} traffic surge executed`
+      : `${normalizedTargets.join(", ")} chaos injection active`
+  );
+}
+
+async function recoverChaosExperiment(experimentId) {
+  const experiment = experimentId
+    ? await getExperimentById(experimentId)
+    : await getLatestRunningExperiment();
+
+  if (!experiment) {
+    const error = new Error("No running experiment found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const targetServices = normalizeTargetServices(
+    experiment.target_services,
+    experiment.target_service
+  );
+  const targets = targetServices.map((serviceName) => getServiceConfig(serviceName)).filter(Boolean);
+
+  if (experiment.fault_type === "service_kill") {
+    for (const target of targets) {
+      await runDockerCommand("start", target.containerName);
+    }
+    await sleep(1500);
+  } else if (experiment.fault_type !== "traffic_surge") {
+    for (const serviceName of targetServices) {
+      await resetServiceChaos(serviceName);
+    }
+  }
+
+  const endedAt = new Date().toISOString();
+  const recoveryTimeMs = new Date(endedAt).getTime() - new Date(experiment.started_at).getTime();
+  const postRecoverySnapshot =
+    experiment.fault_type === "traffic_surge"
+      ? await snapshotAllServices()
+      : await waitForServicesToBeUp();
+
+  await addIncidentLog({
+    experiment_id: experiment.id,
+    level: "INFO",
+    message: `Recovery executed for ${targetServices.join(", ")}.`,
+    metadata_json: {
+      faultType: experiment.fault_type
+    },
+    created_at: endedAt
+  });
+
+  for (const serviceState of postRecoverySnapshot) {
+    await addServiceMetric({
+      experiment_id: experiment.id,
+      service_name: serviceState.name,
+      status: serviceState.status,
+      latency_ms: serviceState.latencyMs,
+      error_count: serviceState.status === "DOWN" ? 1 : 0,
+      degraded_count: serviceState.status === "DEGRADED" ? 1 : 0,
+      failed_requests: 0,
+      fallback_used: false,
+      success_count: 0,
+      packet_loss_count: 0,
+      timeout_count: 0,
+      notes: serviceState.body || { error: serviceState.error || null },
+      timestamp: endedAt
+    });
+  }
+
+  const unresolvedServices = postRecoverySnapshot
+    .filter((serviceState) => serviceState.status !== "UP")
+    .map((serviceState) => ({
+      name: serviceState.name,
+      status: serviceState.status
+    }));
+
+  if (unresolvedServices.length) {
+    await addIncidentLog({
+      experiment_id: experiment.id,
+      level: "WARN",
+      message: "Recovery completed but some services are still not UP.",
+      metadata_json: {
+        unresolvedServices
+      },
+      created_at: new Date().toISOString()
+    });
+  }
+
+  const recoveredExperiment = await updateExperiment(experiment.id, {
+    status: "completed",
+    ended_at: endedAt,
+    recovery_time_ms: recoveryTimeMs
+  });
+
+  const riskProfile = computeRiskProfile(recoveredExperiment, recoveredExperiment);
+
+  return updateExperiment(experiment.id, {
+    risk_score: riskProfile.score,
+    risk_level: riskProfile.level,
+    risk_metrics: riskProfile.metrics
+  });
 }
 
 app.get("/health/services", async (_req, res, next) => {
   try {
-    const checks = [];
-    for (const service of SERVICE_REGISTRY) {
-      checks.push(await checkServiceHealth(service));
-    }
+    const checks = await snapshotAllServices();
 
     res.json({
-      services: checks.map(({ name, status }) => ({ name, status })),
+      services: checks.map((item) => ({
+        name: item.name,
+        status: item.status,
+        latencyMs: item.latencyMs,
+        details: item.body || null
+      })),
+      dependencyChains: SERVICE_DEPENDENCIES,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -144,14 +564,76 @@ app.get("/health/services", async (_req, res, next) => {
   }
 });
 
-app.post("/banking/demo-transaction", async (_req, res, next) => {
-  try {
-    const result = await fetchJson(`${TRANSACTION_SERVICE_URL}/transactions/demo`, {
-      method: "POST",
-      body: JSON.stringify({})
-    });
+app.get("/topology", (_req, res) => {
+  res.json({
+    services: SERVICE_REGISTRY.map((service) => ({
+      name: service.name,
+      criticality: service.criticality
+    })),
+    dependencies: SERVICE_DEPENDENCIES
+  });
+});
 
-    console.log(`[kintsugi-monkey-api] demo transaction result: ${JSON.stringify(result)}`);
+app.get("/chaos/methods", (_req, res) => {
+  res.json({
+    methods: CHAOS_METHODS,
+    defaultConfig: CHAOS_DEFAULT_CONFIG
+  });
+});
+
+app.post("/banking/demo-transaction", async (req, res, next) => {
+  try {
+    const count = Math.max(1, Math.min(50, Number(req.body?.count || 1)));
+    const concurrency = Math.max(1, Math.min(count, Number(req.body?.concurrency || 1)));
+
+    if (count === 1) {
+      const result = await fetchJson(`${TRANSACTION_SERVICE_URL}/transactions/demo`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+
+      console.log(`[kintsugi-monkey-api] demo transaction result: ${JSON.stringify(result)}`);
+      return res.json(result);
+    }
+
+    const results = await runBatchedRequests(count, concurrency);
+    const metricSummary = summarizeRequestMetrics(results);
+
+    return res.json({
+      status:
+        metricSummary.failedRequests > 0
+          ? "failed"
+          : metricSummary.degradedRequests > 0
+            ? "pending_manual_review"
+            : "approved",
+      requestCount: count,
+      concurrency,
+      metric_summary: metricSummary,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/experiments/run", async (req, res, next) => {
+  try {
+    const { target_service, target_services, chaos_method, config } = req.body || {};
+    const result = await runChaosExperiment({
+      targetService: target_service,
+      targetServices: target_services,
+      chaosMethod: chaos_method,
+      config
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/experiments/recover", async (req, res, next) => {
+  try {
+    const result = await recoverChaosExperiment(req.body?.experimentId);
     res.json(result);
   } catch (error) {
     next(error);
@@ -160,117 +642,12 @@ app.post("/banking/demo-transaction", async (_req, res, next) => {
 
 app.post("/experiments/kill-fraud-check", async (_req, res, next) => {
   try {
-    const existing = await getLatestRunningExperiment();
-
-    if (existing) {
-      return res.status(409).json({
-        message: "A chaos experiment is already running.",
-        experiment: existing
-      });
-    }
-
-    const startedAt = new Date().toISOString();
-    const experiment = {
-      id: buildExperimentId(),
-      domain: "banking",
-      target_service: "fraud-check-service",
-      affected_service: "transaction-service",
-      fault_type: "service_kill",
-      status: "running",
-      started_at: startedAt,
-      ended_at: null,
-      recovery_time_ms: null,
-      safe_degradation: SAFE_DEGRADATION_MESSAGE,
-      created_at: startedAt
-    };
-
-    await createExperiment(experiment);
-    await addIncidentLog({
-      experiment_id: experiment.id,
-      level: "INFO",
-      message: "Chaos experiment created and fraud-check-service kill initiated.",
-      metadata_json: {
-        target_container: FRAUD_CHECK_CONTAINER_NAME
-      },
-      created_at: new Date().toISOString()
+    const result = await runChaosExperiment({
+      targetService: "fraud-check-service",
+      chaosMethod: "service_kill",
+      config: {}
     });
-
-    await runDockerCommand("stop", FRAUD_CHECK_CONTAINER_NAME);
-    await upsertServiceStatus("fraud-check-service", "DOWN", "HIGH");
-
-    const latencies = [];
-    let failedRequests = 0;
-    let degradedRequests = 0;
-    let fallbackUsed = false;
-
-    for (let index = 0; index < EXPERIMENT_TRANSACTION_SAMPLES; index += 1) {
-      const requestStarted = Date.now();
-
-      try {
-        const transactionResult = await fetchJson(`${TRANSACTION_SERVICE_URL}/transactions/demo`, {
-          method: "POST",
-          body: JSON.stringify({}),
-          timeoutMs: 3000
-        });
-
-        latencies.push(Date.now() - requestStarted);
-
-        if (transactionResult.degraded || transactionResult.status === "pending_manual_review") {
-          degradedRequests += 1;
-          fallbackUsed = true;
-        }
-
-        await addIncidentLog({
-          experiment_id: experiment.id,
-          level: "WARN",
-          message: "transaction-service processed request in degraded mode during outage.",
-          metadata_json: transactionResult,
-          created_at: new Date().toISOString()
-        });
-      } catch (error) {
-        failedRequests += 1;
-        latencies.push(Date.now() - requestStarted);
-
-        await addIncidentLog({
-          experiment_id: experiment.id,
-          level: "ERROR",
-          message: "transaction-service request failed during fraud-check-service outage.",
-          metadata_json: {
-            error: error.message
-          },
-          created_at: new Date().toISOString()
-        });
-      }
-    }
-
-    const averageLatencyMs =
-      latencies.length > 0
-        ? Number((latencies.reduce((sum, value) => sum + value, 0) / latencies.length).toFixed(2))
-        : 0;
-    const metricStatus = failedRequests === EXPERIMENT_TRANSACTION_SAMPLES ? "DOWN" : "DEGRADED";
-
-    await addServiceMetric({
-      experiment_id: experiment.id,
-      service_name: "transaction-service",
-      status: metricStatus,
-      latency_ms: averageLatencyMs,
-      error_count: failedRequests,
-      degraded_count: degradedRequests,
-      failed_requests: failedRequests,
-      fallback_used: fallbackUsed,
-      timestamp: new Date().toISOString()
-    });
-
-    await upsertServiceStatus("transaction-service", metricStatus, "HIGH");
-
-    res.json({
-      id: experiment.id,
-      target_service: experiment.target_service,
-      affected_service: experiment.affected_service,
-      fault_type: experiment.fault_type,
-      status: experiment.status,
-      message: "fraud-check-service stopped"
-    });
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -278,68 +655,8 @@ app.post("/experiments/kill-fraud-check", async (_req, res, next) => {
 
 app.post("/experiments/recover-fraud-check", async (_req, res, next) => {
   try {
-    const experiment = await getLatestRunningExperiment();
-
-    if (!experiment) {
-      return res.status(404).json({
-        message: "No running experiment found."
-      });
-    }
-
-    await runDockerCommand("start", FRAUD_CHECK_CONTAINER_NAME);
-    const recovered = await waitForFraudServiceRecovery();
-    const endedAt = new Date().toISOString();
-    const recoveryTimeMs = new Date(endedAt).getTime() - new Date(experiment.started_at).getTime();
-
-    await addIncidentLog({
-      experiment_id: experiment.id,
-      level: recovered ? "INFO" : "WARN",
-      message: recovered
-        ? "fraud-check-service recovered and health check passed."
-        : "fraud-check-service start command issued, but health check did not confirm recovery in time.",
-      metadata_json: {
-        recovered
-      },
-      created_at: endedAt
-    });
-
-    await addServiceMetric({
-      experiment_id: experiment.id,
-      service_name: "fraud-check-service",
-      status: recovered ? "UP" : "DOWN",
-      latency_ms: 0,
-      error_count: recovered ? 0 : 1,
-      degraded_count: 0,
-      failed_requests: recovered ? 0 : 1,
-      fallback_used: false,
-      timestamp: endedAt
-    });
-
-    const transactionHealth = await checkServiceHealth(
-      SERVICE_REGISTRY.find((service) => service.name === "transaction-service")
-    );
-
-    await addServiceMetric({
-      experiment_id: experiment.id,
-      service_name: "transaction-service",
-      status: transactionHealth.status,
-      latency_ms: transactionHealth.latencyMs,
-      error_count: transactionHealth.status === "DOWN" ? 1 : 0,
-      degraded_count: transactionHealth.status === "DEGRADED" ? 1 : 0,
-      failed_requests: transactionHealth.status === "DOWN" ? 1 : 0,
-      fallback_used: false,
-      timestamp: new Date().toISOString()
-    });
-
-    await upsertServiceStatus("fraud-check-service", recovered ? "UP" : "DOWN", "HIGH");
-    const completedExperiment = await updateExperiment(experiment.id, {
-      status: "completed",
-      ended_at: endedAt,
-      recovery_time_ms: recoveryTimeMs,
-      safe_degradation: SAFE_DEGRADATION_MESSAGE
-    });
-
-    res.json(completedExperiment);
+    const result = await recoverChaosExperiment();
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -355,54 +672,62 @@ app.post("/experiments/:id/analyze", async (req, res, next) => {
       });
     }
 
-    const normalizedMetrics = {
+    const riskProfile = computeRiskProfile(detail, detail);
+    const normalizedPayload = {
       experiment: {
         id: detail.id,
         domain: detail.domain,
         target_service: detail.target_service,
+        target_services: detail.target_services,
         affected_service: detail.affected_service,
+        affected_services: detail.affected_services,
         fault_type: detail.fault_type,
+        chaos_method_category: detail.chaos_method_category,
         status: detail.status,
         started_at: detail.started_at,
         ended_at: detail.ended_at,
         recovery_time_ms: detail.recovery_time_ms,
         safe_degradation: detail.safe_degradation
       },
-      service_metrics: detail.metrics.map((metric) => ({
-        service_name: metric.service_name,
-        status: metric.status,
-        latency_ms: metric.latency_ms,
-        error_count: metric.error_count,
-        degraded_count: metric.degraded_count,
-        failed_requests: metric.failed_requests,
-        fallback_used: Boolean(metric.fallback_used),
-        timestamp: metric.timestamp
-      })),
-      incident_logs: detail.logs
+      topology: {
+        services: SERVICE_REGISTRY.map((service) => ({
+          name: service.name,
+          criticality: service.criticality
+        })),
+        dependencies: SERVICE_DEPENDENCIES
+      },
+      service_metrics: detail.metrics,
+      incident_logs: detail.logs,
+      risk_profile: riskProfile
     };
 
     let analysis;
     let analyzer = "gemini";
 
     try {
-      analysis = await analyzeWithGemini(normalizedMetrics);
+      analysis = await analyzeWithGemini(normalizedPayload);
     } catch (error) {
       analyzer = "fallback";
       console.warn(`[kintsugi-monkey-api] Gemini unavailable, using fallback analyzer: ${error.message}`);
-      analysis = buildFallbackAnalysis(normalizedMetrics);
+      analysis = buildFallbackAnalysis(normalizedPayload);
     }
 
     const trace = {
       id: buildGoldenTraceId(),
       experiment_id: detail.id,
+      chaos_method_classification: analysis.chaos_method_classification,
       summary: analysis.summary,
       suspected_weak_point: analysis.suspected_weak_point,
       blast_radius: analysis.blast_radius,
-      risk_level: analysis.risk_level,
+      risk_level: riskProfile.level,
+      risk_score: riskProfile.score,
+      risk_level_reasoning: analysis.risk_level_reasoning,
       safe_degradation_review: analysis.safe_degradation_review,
       developer_recommendations: analysis.developer_recommendations,
-      next_experiments: analysis.next_experiments,
-      kintsugi_lesson: analysis.kintsugi_lesson,
+      next_experiments: [],
+      risk_metrics: riskProfile.metrics,
+      kintsugi_lesson: "",
+      translated_to: "en",
       raw_ai_response: JSON.stringify({
         analyzer,
         response: analysis.raw_ai_response || null
@@ -412,8 +737,14 @@ app.post("/experiments/:id/analyze", async (req, res, next) => {
 
     await addGoldenTrace(trace);
 
+    const {
+      next_experiments: _nextExperiments,
+      kintsugi_lesson: _kintsugiLesson,
+      ...clientTrace
+    } = trace;
+
     res.json({
-      ...trace,
+      ...clientTrace,
       analyzer
     });
   } catch (error) {
@@ -474,7 +805,7 @@ app.get("/golden-traces/:id", async (req, res, next) => {
 app.use((error, _req, res, _next) => {
   console.error(`[kintsugi-monkey-api] ${error.stack || error.message}`);
 
-  res.status(500).json({
+  res.status(error.statusCode || 500).json({
     error: "Internal Server Error",
     message: error.message
   });

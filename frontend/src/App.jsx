@@ -13,9 +13,7 @@ import {
   History,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
   Split,
-  Wrench,
   Zap,
 } from "lucide-react";
 
@@ -28,17 +26,23 @@ const SERVICE_NAMES = [
   "transaction-service",
   "fraud-check-service",
   "notification-service",
+  "risk-profile-service",
+  "limit-service",
+  "beneficiary-service",
+  "compliance-service",
 ];
 
 const EMPTY_TRACE = {
   summary: "-",
+  chaos_method_classification: "-",
   suspected_weak_point: "-",
   blast_radius: "-",
   risk_level: "-",
+  risk_score: 0,
+  risk_level_reasoning: "-",
   safe_degradation_review: "-",
   developer_recommendations: [],
-  next_experiments: [],
-  kintsugi_lesson: "-",
+  risk_metrics: [],
 };
 
 function getList(payload, keys) {
@@ -65,27 +69,6 @@ function getExperimentId(experiment) {
   }
 
   return experiment.id || experiment.experiment_id || experiment._id || "";
-}
-
-function findExperiment(payload) {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  if (payload.experiment && typeof payload.experiment === "object") {
-    return payload.experiment;
-  }
-
-  if (payload.latest_experiment && typeof payload.latest_experiment === "object") {
-    return payload.latest_experiment;
-  }
-
-  if (payload.id || payload.experiment_id || payload.target_service) {
-    return payload;
-  }
-
-  const experiments = getList(payload, ["experiments", "items", "data"]);
-  return pickLatestExperiment(experiments);
 }
 
 function parseTime(value) {
@@ -120,38 +103,6 @@ function pickLatestExperiment(experiments) {
   });
 
   return dated[0] || experiments[0];
-}
-
-function summarizeMetrics(metrics) {
-  if (!Array.isArray(metrics) || !metrics.length) {
-    return [];
-  }
-
-  const failedRequests = metrics.reduce(
-    (sum, metric) => sum + Number(metric.failed_requests || 0),
-    0,
-  );
-  const degradedRequests = metrics.reduce(
-    (sum, metric) => sum + Number(metric.degraded_count || 0),
-    0,
-  );
-  const averageLatencyMs = Number(
-    (
-      metrics.reduce((sum, metric) => sum + Number(metric.latency_ms || 0), 0) /
-      metrics.length
-    ).toFixed(2),
-  );
-  const fallbackUsed = metrics.some((metric) => {
-    const value = metric.fallback_used;
-    return value === true || value === 1 || value === "1";
-  });
-
-  return [
-    ["failed_requests", failedRequests],
-    ["degraded_requests", degradedRequests],
-    ["fallback_used", fallbackUsed],
-    ["average_latency_ms", averageLatencyMs],
-  ];
 }
 
 function formatValue(value) {
@@ -202,7 +153,10 @@ function statusClass(status) {
   if (
     normalized === "DEGRADED" ||
     normalized === "MEDIUM" ||
-    normalized === "PENDING_MANUAL_REVIEW"
+    normalized === "PENDING_MANUAL_REVIEW" ||
+    normalized === "PENDING_LIMIT_REVIEW" ||
+    normalized === "PENDING_COMPLIANCE_REVIEW" ||
+    normalized === "RUNNING"
   ) {
     return "is-degraded";
   }
@@ -215,10 +169,7 @@ function statusClass(status) {
 }
 
 function getServiceStatus(services, name) {
-  return (
-    services.find((service) => service.name === name)?.status ||
-    "UNKNOWN"
-  );
+  return services.find((service) => service.name === name)?.status || "UNKNOWN";
 }
 
 function SectionTitle({ icon: Icon, eyebrow, title, children }) {
@@ -272,19 +223,36 @@ function App() {
     SERVICE_NAMES.map((name) => ({ name, status: "UNKNOWN" })),
   );
   const [healthTimestamp, setHealthTimestamp] = useState("");
+  const [topology, setTopology] = useState({ services: [], dependencies: [] });
+  const [chaosCatalog, setChaosCatalog] = useState({ methods: [], defaultConfig: {} });
   const [experiments, setExperiments] = useState([]);
   const [latestExperimentOverride, setLatestExperimentOverride] = useState(null);
   const [latestExperimentDetail, setLatestExperimentDetail] = useState(null);
   const [goldenTraces, setGoldenTraces] = useState([]);
   const [activeTrace, setActiveTrace] = useState(null);
   const [transactionResult, setTransactionResult] = useState(null);
+  const [transactionForm, setTransactionForm] = useState({
+    count: 1,
+    concurrency: 1,
+  });
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState({
     health: false,
     transaction: false,
-    break: false,
+    runChaos: false,
     recover: false,
     analyze: false,
+  });
+  const [chaosForm, setChaosForm] = useState({
+    target_services: ["fraud-check-service"],
+    chaos_method: "service_kill",
+    latencyMs: 1200,
+    packetLossRate: 0.35,
+    cpuStressMs: 450,
+    memoryStressMb: 48,
+    partialFailureRate: 0.7,
+    requestCount: 12,
+    concurrency: 6,
   });
 
   const latestExperimentSummary = useMemo(
@@ -297,12 +265,25 @@ function App() {
       ? latestExperimentDetail
       : latestExperimentSummary;
 
-  const fraudStatus = getServiceStatus(services, "fraud-check-service");
-  const transactionStatus = getServiceStatus(services, "transaction-service");
-  const fraudIsDown = String(fraudStatus).toUpperCase() === "DOWN";
-  const transactionIsDegraded =
-    String(transactionStatus).toUpperCase() === "DEGRADED";
   const visibleTrace = activeTrace || goldenTraces[0] || EMPTY_TRACE;
+  const riskMetrics =
+    (Array.isArray(visibleTrace.risk_metrics) && visibleTrace.risk_metrics.length
+      ? visibleTrace.risk_metrics
+      : latestExperiment?.risk_metrics) || [];
+  const riskScore = Number(visibleTrace.risk_score ?? latestExperiment?.risk_score ?? 0);
+
+  const availableTargets = useMemo(() => {
+    const activeMethod = chaosCatalog.methods.find(
+      (method) => method.code === chaosForm.chaos_method,
+    );
+
+    return activeMethod?.supportedTargets || SERVICE_NAMES;
+  }, [chaosCatalog.methods, chaosForm.chaos_method]);
+
+  const selectedTargetServices = useMemo(() => {
+    const selected = Array.isArray(chaosForm.target_services) ? chaosForm.target_services : [];
+    return selected.filter((service) => availableTargets.includes(service));
+  }, [availableTargets, chaosForm.target_services]);
 
   const apiFetch = useCallback(async (path, options = {}) => {
     const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -351,30 +332,48 @@ function App() {
   }, []);
 
   const refreshHealth = useCallback(
-    async (options = {}) => {
-      return runTask(
+    async (options = {}) =>
+      runTask(
         "health",
         async () => {
           const payload = await apiFetch("/health/services");
-          const nextServices = getList(payload, ["services"]).length
-            ? getList(payload, ["services"])
-            : SERVICE_NAMES.map((name) => ({ name, status: "UNKNOWN" }));
-
-          setServices(nextServices);
+          setServices(
+            getList(payload, ["services"]).length
+              ? getList(payload, ["services"])
+              : SERVICE_NAMES.map((name) => ({ name, status: "UNKNOWN" })),
+          );
           setHealthTimestamp(payload.timestamp || new Date().toISOString());
           return payload;
         },
         options,
-      );
-    },
+      ),
     [apiFetch, runTask],
   );
+
+  const refreshTopology = useCallback(async () => {
+    const payload = await apiFetch("/topology");
+    setTopology(payload);
+    return payload;
+  }, [apiFetch]);
+
+  const refreshChaosCatalog = useCallback(async () => {
+    const payload = await apiFetch("/chaos/methods");
+    setChaosCatalog(payload);
+    setChaosForm((current) => ({
+      ...current,
+      ...payload.defaultConfig,
+      target_services:
+        current.target_services && current.target_services.length
+          ? current.target_services
+          : payload.methods?.[0]?.supportedTargets?.slice(0, 1) || ["fraud-check-service"],
+    }));
+    return payload;
+  }, [apiFetch]);
 
   const refreshExperiments = useCallback(async () => {
     return runTask("health", async () => {
       const payload = await apiFetch("/experiments");
-      const nextExperiments = getList(payload, ["experiments", "items", "data"]);
-      setExperiments(nextExperiments);
+      setExperiments(getList(payload, ["experiments", "items", "data"]));
       setLatestExperimentOverride(null);
       return payload;
     });
@@ -383,8 +382,7 @@ function App() {
   const refreshGoldenTraces = useCallback(async () => {
     return runTask("health", async () => {
       const payload = await apiFetch("/golden-traces");
-      const traces = getList(payload, ["golden_traces", "traces", "items", "data"]);
-      setGoldenTraces(traces);
+      setGoldenTraces(getList(payload, ["golden_traces", "traces", "items", "data"]));
       return payload;
     });
   }, [apiFetch, runTask]);
@@ -401,9 +399,7 @@ function App() {
       return runTask(
         "health",
         async () => {
-          const detail = await apiFetch(
-            `/experiments/${encodeURIComponent(experimentId)}`,
-          );
+          const detail = await apiFetch(`/experiments/${encodeURIComponent(experimentId)}`);
           setLatestExperimentDetail(detail);
           return detail;
         },
@@ -417,13 +413,15 @@ function App() {
     refreshHealth({ keepError: true });
     refreshExperiments();
     refreshGoldenTraces();
-
-    const intervalId = window.setInterval(() => {
-      refreshHealth({ keepError: true });
-    }, 3000);
-
-    return () => window.clearInterval(intervalId);
-  }, [refreshExperiments, refreshGoldenTraces, refreshHealth]);
+    refreshTopology();
+    refreshChaosCatalog();
+  }, [
+    refreshChaosCatalog,
+    refreshExperiments,
+    refreshGoldenTraces,
+    refreshHealth,
+    refreshTopology,
+  ]);
 
   useEffect(() => {
     const summaryId = getExperimentId(latestExperimentSummary);
@@ -439,9 +437,28 @@ function App() {
     }
   }, [latestExperimentDetail, latestExperimentSummary, refreshExperimentDetail]);
 
+  useEffect(() => {
+    if (!availableTargets.length) {
+      return;
+    }
+
+    if (!selectedTargetServices.length) {
+      setChaosForm((current) => ({
+        ...current,
+        target_services: [availableTargets[0]],
+      }));
+    }
+  }, [availableTargets, selectedTargetServices.length]);
+
   const runDemoTransaction = async () => {
     const payload = await runTask("transaction", async () =>
-      apiFetch("/banking/demo-transaction", { method: "POST" }),
+      apiFetch("/banking/demo-transaction", {
+        method: "POST",
+        body: JSON.stringify({
+          count: Number(transactionForm.count),
+          concurrency: Number(transactionForm.concurrency),
+        }),
+      }),
     );
 
     if (payload) {
@@ -450,42 +467,56 @@ function App() {
     }
   };
 
-  const breakFraudCheck = async () => {
-    const payload = await runTask("break", async () =>
-      apiFetch("/experiments/kill-fraud-check", { method: "POST" }),
+  const runChaosScenario = async () => {
+    const payload = await runTask("runChaos", async () =>
+      apiFetch("/experiments/run", {
+        method: "POST",
+        body: JSON.stringify({
+          target_service: selectedTargetServices[0],
+          target_services: selectedTargetServices,
+          chaos_method: chaosForm.chaos_method,
+          config: {
+            latencyMs: Number(chaosForm.latencyMs),
+            packetLossRate: Number(chaosForm.packetLossRate),
+            cpuStressMs: Number(chaosForm.cpuStressMs),
+            memoryStressMb: Number(chaosForm.memoryStressMb),
+            partialFailureRate: Number(chaosForm.partialFailureRate),
+            requestCount: Number(chaosForm.requestCount),
+            concurrency: Number(chaosForm.concurrency),
+          },
+        }),
+      }),
     );
 
     if (payload) {
-      const experiment = findExperiment(payload);
-      if (experiment) {
-        setLatestExperimentOverride(experiment);
-      }
+      setLatestExperimentOverride(payload);
       await refreshHealth({ keepError: true });
       await refreshExperiments();
     }
   };
 
-  const recoverFraudCheck = async () => {
+  const recoverScenario = async () => {
     const payload = await runTask("recover", async () =>
-      apiFetch("/experiments/recover-fraud-check", { method: "POST" }),
+      apiFetch("/experiments/recover", {
+        method: "POST",
+        body: JSON.stringify({
+          experimentId: latestExperiment?.id,
+        }),
+      }),
     );
 
     if (payload) {
-      const experiment = findExperiment(payload);
-      if (experiment) {
-        setLatestExperimentOverride(experiment);
-      }
+      setLatestExperimentOverride(payload);
       await refreshHealth({ keepError: true });
       await refreshExperiments();
     }
   };
 
   const analyzeLastExperiment = async () => {
-    const experimentId =
-      latestExperiment?.id || latestExperiment?.experiment_id || latestExperiment?._id;
+    const experimentId = getExperimentId(latestExperiment);
 
     if (!experimentId) {
-      setErrorMessage("No latest experiment id available for Gemini Analysis.");
+      setErrorMessage("Analiz edilecek bir deney bulunamadı.");
       return;
     }
 
@@ -504,43 +535,43 @@ function App() {
 
   const experimentFields = [
     ["id", latestExperiment?.id],
-    ["domain", latestExperiment?.domain],
-    ["target_service", latestExperiment?.target_service],
-    ["affected_service", latestExperiment?.affected_service],
+    [
+      "target_services",
+      latestExperiment?.target_services?.length
+        ? latestExperiment?.target_services
+        : latestExperiment?.target_service,
+    ],
     ["fault_type", latestExperiment?.fault_type],
+    ["chaos_method_category", latestExperiment?.chaos_method_category],
     ["status", latestExperiment?.status],
+    ["affected_services", latestExperiment?.affected_services],
+    ["risk_score", latestExperiment?.risk_score],
+    ["risk_level", latestExperiment?.risk_level],
     ["started_at", latestExperiment?.started_at, true],
     ["ended_at", latestExperiment?.ended_at, true],
-    ["recovery_time_ms", latestExperiment?.recovery_time_ms],
-    ["safe_degradation", latestExperiment?.safe_degradation],
   ];
 
-  const metricFields = [
-    "failed_requests",
-    "degraded_requests",
-    "fallback_used",
-    "average_latency_ms",
-    "recovery_time_ms",
-  ];
-
-  const summarizedMetrics = summarizeMetrics(latestExperiment?.metrics);
-  const availableMetrics = metricFields
-    .map((key) => [key, latestExperiment?.[key]])
-    .filter(([, value]) => value !== undefined && value !== null);
-
-  const fallbackMetricEntries =
-    availableMetrics.length > 0
-      ? availableMetrics
-      : summarizedMetrics.length
-        ? summarizedMetrics
-        : Object.entries(latestExperiment?.metrics || {}).slice(0, 8);
+  const metricSummary = latestExperiment?.metric_summary || {};
+  const metricEntries = [
+    ["request_count", metricSummary.requestCount],
+    ["successful_requests", metricSummary.successfulRequests],
+    ["failed_requests", metricSummary.failedRequests],
+    ["degraded_requests", metricSummary.degradedRequests],
+    ["avg_latency_ms", metricSummary.averageLatencyMs],
+    ["p95_latency_ms", metricSummary.p95LatencyMs],
+    ["peak_latency_ms", metricSummary.peakLatencyMs],
+  ].filter(([, value]) => value !== undefined && value !== null);
 
   const recommendations = Array.isArray(visibleTrace.developer_recommendations)
     ? visibleTrace.developer_recommendations
     : [];
-  const nextExperiments = Array.isArray(visibleTrace.next_experiments)
-    ? visibleTrace.next_experiments
-    : [];
+
+  const showLatencyFields = ["network_delay"].includes(chaosForm.chaos_method);
+  const showPacketLossField = chaosForm.chaos_method === "packet_loss";
+  const showCpuField = chaosForm.chaos_method === "cpu_stress";
+  const showMemoryField = chaosForm.chaos_method === "memory_stress";
+  const showPartialFailureField = chaosForm.chaos_method === "partial_failure";
+  const showLoadFields = chaosForm.chaos_method === "traffic_surge";
 
   return (
     <div className="app-shell">
@@ -553,11 +584,11 @@ function App() {
             Fracture Memory Dashboard
           </span>
           <h1>Kintsugi Monkey Banking</h1>
-          <p className="subtitle">Safe chaos for resilient banking systems.</p>
+          <p className="subtitle">Genişletilmiş servis zincirleri ve çoklu chaos metodları.</p>
           <p className="slogan">Break safely. Learn visibly. Repair stronger.</p>
           <p className="hero-description">
-            Controlled chaos experiments that transform banking service failures
-            into Golden Traces.
+            Transaction → Limit → Account ve Transaction → Fraud → Risk Profile zincirleri
+            üzerinde gecikme, kısmi arıza, yük ve bağımlılık kopması gibi senaryoları test edin.
           </p>
         </div>
 
@@ -568,9 +599,9 @@ function App() {
             <span />
           </div>
           <div>
-            <span>Resilience Memory</span>
-            <strong>{goldenTraces.length}</strong>
-            <small>Golden Trace records</small>
+            <span>Risk Score</span>
+            <strong>{Math.round(riskScore)}</strong>
+            <small>{formatValue(visibleTrace.risk_level || latestExperiment?.risk_level)}</small>
           </div>
         </div>
       </header>
@@ -586,7 +617,7 @@ function App() {
         <section className="panel system-panel wide-panel">
           <SectionTitle
             icon={Split}
-            eyebrow="Banking System Map"
+            eyebrow="Bağımlılık Topolojisi"
             title="Service Topology"
           >
             <div className="timestamp">
@@ -613,23 +644,35 @@ function App() {
                   </div>
                   <h3>{service.name}</h3>
                   <StatusPill value={service.status} />
-                  {service.name === "transaction-service" &&
-                  transactionIsDegraded ? (
-                    <span className="fallback-badge">Pending Manual Review</span>
+                  {service.details?.chaosMode && service.details.chaosMode !== "none" ? (
+                    <span className="fallback-badge">{service.details.chaosMode}</span>
                   ) : null}
                 </article>
               ))}
             </div>
 
-            <div
-              className={`dependency-line ${fraudIsDown ? "is-cracked" : ""}`}
-              aria-label="transaction-service to fraud-check-service dependency"
-            >
-              <span>transaction-service</span>
-              <div className="line-track">
-                {fraudIsDown ? <i className="gold-crack" /> : null}
-              </div>
-              <span>fraud-check-service</span>
+            <div className="chain-list">
+              {topology.dependencies.map((edge) => {
+                const fromStatus = getServiceStatus(services, edge.from);
+                const toStatus = getServiceStatus(services, edge.to);
+                const isImpacted =
+                  String(fromStatus).toUpperCase() !== "UP" ||
+                  String(toStatus).toUpperCase() !== "UP";
+
+                return (
+                  <div
+                    className={`dependency-line ${isImpacted ? "is-cracked" : ""}`}
+                    key={`${edge.from}-${edge.to}-${edge.label}`}
+                  >
+                    <span>{edge.from}</span>
+                    <div className="line-track">
+                      {isImpacted ? <i className="gold-crack" /> : null}
+                    </div>
+                    <span>{edge.to}</span>
+                    <small>{edge.label}</small>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -637,7 +680,7 @@ function App() {
         <section className="panel">
           <SectionTitle
             icon={Banknote}
-            eyebrow="Banking Demo Transaction Panel"
+            eyebrow="Demo Banking Flow"
             title="Transaction Flow"
           />
 
@@ -651,20 +694,60 @@ function App() {
             {loading.transaction ? "Running..." : "Run Demo Transaction"}
           </button>
 
+          <div className="control-grid form-grid">
+            <label className="field">
+              <span>Transaction Count</span>
+              <input
+                type="number"
+                min="1"
+                max="50"
+                value={transactionForm.count}
+                onChange={(event) =>
+                  setTransactionForm((current) => ({
+                    ...current,
+                    count: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Concurrency</span>
+              <input
+                type="number"
+                min="1"
+                max={transactionForm.count}
+                value={transactionForm.concurrency}
+                onChange={(event) =>
+                  setTransactionForm((current) => ({
+                    ...current,
+                    concurrency: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          </div>
+
           <div className="transaction-result">
-            <DetailRow
-              label="transactionId"
-              value={transactionResult?.transactionId}
-            />
+            <DetailRow label="transactionId" value={transactionResult?.transactionId} />
             <DetailRow label="status" value={transactionResult?.status} />
             <DetailRow label="message" value={transactionResult?.message} />
+            <DetailRow label="fraudCheckStatus" value={transactionResult?.fraudCheckStatus} />
+            <DetailRow label="limitCheckStatus" value={transactionResult?.limitCheckStatus} />
             <DetailRow
-              label="fraudCheckStatus"
-              value={transactionResult?.fraudCheckStatus}
+              label="requestCount"
+              value={transactionResult?.metric_summary?.requestCount || transactionResult?.requestCount}
+            />
+            <DetailRow
+              label="failedRequests"
+              value={transactionResult?.metric_summary?.failedRequests}
+            />
+            <DetailRow
+              label="degradedRequests"
+              value={transactionResult?.metric_summary?.degradedRequests}
             />
           </div>
 
-          {transactionResult?.status === "pending_manual_review" ? (
+          {String(transactionResult?.status || "").startsWith("pending_") ? (
             <div className="safe-degradation-callout">
               <ShieldCheck size={18} />
               Safe Degradation Activated
@@ -673,11 +756,190 @@ function App() {
         </section>
 
         <section className="panel">
-          <SectionTitle
-            icon={FlaskConical}
-            eyebrow="Chaos Controls"
-            title="Experiment Actions"
-          />
+          <SectionTitle icon={FlaskConical} eyebrow="Chaos Engine" title="Experiment Controls" />
+
+          <div className="control-grid form-grid">
+            <label className="field">
+              <span>Chaos Method</span>
+              <select
+                value={chaosForm.chaos_method}
+                onChange={(event) =>
+                  setChaosForm((current) => ({
+                    ...current,
+                    chaos_method: event.target.value,
+                  }))
+                }
+              >
+                {chaosCatalog.methods.map((method) => (
+                  <option key={method.code} value={method.code}>
+                    {method.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="field">
+              <span>Target Services</span>
+              <div className="target-service-grid">
+                {availableTargets.map((target) => {
+                  const checked = selectedTargetServices.includes(target);
+                  return (
+                    <label className="target-service-option" key={target}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) =>
+                          setChaosForm((current) => {
+                            const currentTargets = Array.isArray(current.target_services)
+                              ? current.target_services
+                              : [];
+
+                            if (event.target.checked) {
+                              if (current.chaos_method === "traffic_surge") {
+                                return {
+                                  ...current,
+                                  target_services: [target],
+                                };
+                              }
+
+                              return {
+                                ...current,
+                                target_services: [...new Set([...currentTargets, target])],
+                              };
+                            }
+
+                            const nextTargets = currentTargets.filter((item) => item !== target);
+                            return {
+                              ...current,
+                              target_services: nextTargets.length ? nextTargets : [availableTargets[0]],
+                            };
+                          })
+                        }
+                      />
+                      <span>{target}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {showLatencyFields ? (
+              <label className="field">
+                <span>Latency (ms)</span>
+                <input
+                  type="number"
+                  value={chaosForm.latencyMs}
+                  onChange={(event) =>
+                    setChaosForm((current) => ({
+                      ...current,
+                      latencyMs: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {showPacketLossField ? (
+              <label className="field">
+                <span>Packet Loss Rate</span>
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0"
+                  max="1"
+                  value={chaosForm.packetLossRate}
+                  onChange={(event) =>
+                    setChaosForm((current) => ({
+                      ...current,
+                      packetLossRate: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {showCpuField ? (
+              <label className="field">
+                <span>CPU Burn (ms)</span>
+                <input
+                  type="number"
+                  value={chaosForm.cpuStressMs}
+                  onChange={(event) =>
+                    setChaosForm((current) => ({
+                      ...current,
+                      cpuStressMs: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {showMemoryField ? (
+              <label className="field">
+                <span>Memory (MB)</span>
+                <input
+                  type="number"
+                  value={chaosForm.memoryStressMb}
+                  onChange={(event) =>
+                    setChaosForm((current) => ({
+                      ...current,
+                      memoryStressMb: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {showPartialFailureField ? (
+              <label className="field">
+                <span>Partial Failure Rate</span>
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0"
+                  max="1"
+                  value={chaosForm.partialFailureRate}
+                  onChange={(event) =>
+                    setChaosForm((current) => ({
+                      ...current,
+                      partialFailureRate: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {showLoadFields ? (
+              <>
+                <label className="field">
+                  <span>Request Count</span>
+                  <input
+                    type="number"
+                    value={chaosForm.requestCount}
+                    onChange={(event) =>
+                      setChaosForm((current) => ({
+                        ...current,
+                        requestCount: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Concurrency</span>
+                  <input
+                    type="number"
+                    value={chaosForm.concurrency}
+                    onChange={(event) =>
+                      setChaosForm((current) => ({
+                        ...current,
+                        concurrency: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
+          </div>
 
           <div className="control-grid">
             <button
@@ -692,20 +954,20 @@ function App() {
             <button
               className="control-button danger"
               type="button"
-              onClick={breakFraudCheck}
-              disabled={loading.break}
+              onClick={runChaosScenario}
+              disabled={loading.runChaos}
             >
               <AlertTriangle size={17} />
-              Break fraud-check-service
+              {loading.runChaos ? "Injecting..." : "Run Chaos"}
             </button>
             <button
               className="control-button success"
               type="button"
-              onClick={recoverFraudCheck}
-              disabled={loading.recover}
+              onClick={recoverScenario}
+              disabled={loading.recover || !latestExperiment || latestExperiment.status === "completed"}
             >
               <HeartPulse size={17} />
-              Recover fraud-check-service
+              Recover Experiment
             </button>
             <button
               className="control-button gold"
@@ -720,11 +982,7 @@ function App() {
         </section>
 
         <section className="panel">
-          <SectionTitle
-            icon={History}
-            eyebrow="Latest Experiment Panel"
-            title="Latest Fault"
-          />
+          <SectionTitle icon={History} eyebrow="Latest Experiment" title="Latest Fault" />
 
           <div className="details-stack">
             {experimentFields.map(([label, value, date]) => (
@@ -734,15 +992,11 @@ function App() {
         </section>
 
         <section className="panel">
-          <SectionTitle
-            icon={Gauge}
-            eyebrow="Metrics / Impact Panel"
-            title="Blast Signals"
-          />
+          <SectionTitle icon={Gauge} eyebrow="Metrics / Impact" title="Blast Signals" />
 
           <div className="metrics-grid">
-            {fallbackMetricEntries.length ? (
-              fallbackMetricEntries.map(([label, value]) => (
+            {metricEntries.length ? (
+              metricEntries.map(([label, value]) => (
                 <DataChip key={label} label={label} value={value} />
               ))
             ) : (
@@ -751,16 +1005,50 @@ function App() {
           </div>
         </section>
 
+        <section className="panel wide-panel">
+          <SectionTitle icon={Gauge} eyebrow="Quantified Risk" title="Risk Model" />
+
+          <div className="risk-score-summary">
+            <div>
+              <span>Final Score</span>
+              <strong>{Math.round(riskScore)}</strong>
+            </div>
+            <StatusPill value={visibleTrace.risk_level || latestExperiment?.risk_level} />
+          </div>
+
+          <div className="risk-bars">
+            {riskMetrics.length ? (
+              riskMetrics.map((metric) => (
+                <div className="risk-bar-row" key={metric.name}>
+                  <div className="risk-bar-meta">
+                    <span>{metric.label}</span>
+                    <small>{formatValue(metric.rawValue)}</small>
+                  </div>
+                  <div className="risk-bar-track">
+                    <div
+                      className="risk-bar-fill"
+                      style={{ width: `${Number(metric.normalizedValue || 0)}%` }}
+                    />
+                  </div>
+                  <strong>{Math.round(Number(metric.normalizedValue || 0))}</strong>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state">Risk breakdown will appear after an experiment.</div>
+            )}
+          </div>
+        </section>
+
         <section className="panel trace-panel wide-panel">
-          <SectionTitle
-            icon={BrainCircuit}
-            eyebrow="Golden Trace Panel"
-            title="Gemini Analysis"
-          >
+          <SectionTitle icon={BrainCircuit} eyebrow="Golden Trace" title="Gemini Analysis">
             <StatusPill value={visibleTrace.risk_level} />
           </SectionTitle>
 
           <div className="trace-grid">
+            <article className="trace-block">
+              <span>Chaos Method Classification</span>
+              <p>{formatValue(visibleTrace.chaos_method_classification)}</p>
+            </article>
             <article className="trace-block">
               <span>Summary</span>
               <p>{formatValue(visibleTrace.summary)}</p>
@@ -772,6 +1060,10 @@ function App() {
             <article className="trace-block">
               <span>Blast Radius</span>
               <p>{formatValue(visibleTrace.blast_radius)}</p>
+            </article>
+            <article className="trace-block">
+              <span>Risk Reasoning</span>
+              <p>{formatValue(visibleTrace.risk_level_reasoning)}</p>
             </article>
             <article className="trace-block">
               <span>Safe Degradation Review</span>
@@ -798,42 +1090,11 @@ function App() {
                 )}
               </ul>
             </div>
-
-            <div>
-              <h3>Next Experiments</h3>
-              <ul className="spark-list">
-                {nextExperiments.length ? (
-                  nextExperiments.map((item, index) => (
-                    <li key={`${item}-${index}`}>
-                      <Sparkles size={16} />
-                      <span>{item}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li>
-                    <Sparkles size={16} />
-                    <span>-</span>
-                  </li>
-                )}
-              </ul>
-            </div>
           </div>
-
-          <article className="kintsugi-lesson">
-            <Wrench size={18} />
-            <div>
-              <span>Kintsugi Lesson</span>
-              <p>{formatValue(visibleTrace.kintsugi_lesson)}</p>
-            </div>
-          </article>
         </section>
 
         <section className="panel history-panel">
-          <SectionTitle
-            icon={History}
-            eyebrow="Experiment History"
-            title="Fracture Memory"
-          />
+          <SectionTitle icon={History} eyebrow="Experiment History" title="Fracture Memory" />
 
           <div className="history-list">
             {experiments.length ? (
@@ -842,11 +1103,18 @@ function App() {
                   <div>
                     <strong>{formatValue(experiment.id)}</strong>
                     <span>
-                      {formatValue(experiment.target_service)} ·{" "}
-                      {formatValue(experiment.fault_type)}
+                      {formatValue(
+                        experiment.target_services?.length
+                          ? experiment.target_services
+                          : experiment.target_service,
+                      )}{" "}
+                      · {formatValue(experiment.fault_type)}
                     </span>
                   </div>
-                  <StatusPill value={experiment.status} />
+                  <div className="history-status-stack">
+                    <StatusPill value={experiment.status} />
+                    <small>Risk {Math.round(Number(experiment.risk_score || 0))}</small>
+                  </div>
                 </article>
               ))
             ) : (
@@ -856,24 +1124,20 @@ function App() {
         </section>
 
         <section className="panel history-panel">
-          <SectionTitle
-            icon={Gem}
-            eyebrow="Golden Trace History"
-            title="Resilience Memory"
-          />
+          <SectionTitle icon={Gem} eyebrow="Golden Trace History" title="Resilience Memory" />
 
           <div className="history-list">
             {goldenTraces.length ? (
               goldenTraces.map((trace, index) => (
-                <article
-                  className="history-item trace-history-item"
-                  key={trace.id || index}
-                >
+                <article className="history-item trace-history-item" key={trace.id || index}>
                   <div>
                     <strong>{formatValue(trace.id)}</strong>
-                    <span>{formatValue(trace.summary)}</span>
+                    <span>{formatValue(trace.chaos_method_classification || trace.summary)}</span>
                   </div>
-                  <StatusPill value={trace.risk_level} />
+                  <div className="history-status-stack">
+                    <StatusPill value={trace.risk_level} />
+                    <small>Score {Math.round(Number(trace.risk_score || 0))}</small>
+                  </div>
                 </article>
               ))
             ) : (

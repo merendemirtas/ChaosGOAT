@@ -1,18 +1,23 @@
 const express = require("express");
 const cors = require("cors");
 
-const PORT = Number(process.env.PORT || 4001);
+const PORT = Number(process.env.PORT || 4005);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const accountRecord = {
-  accountId: "acc_1001",
-  owner: "Demo User",
-  balance: 50000,
-  currency: "TRY",
-  dailyTransferLimit: 15000
+const profiles = {
+  acc_1001: {
+    accountId: "acc_1001",
+    customerTier: "standard",
+    riskBand: "LOW"
+  },
+  acc_2002: {
+    accountId: "acc_2002",
+    customerTier: "watch",
+    riskBand: "MEDIUM"
+  }
 };
 
 let requestCounter = 0;
@@ -66,13 +71,13 @@ async function applyRequestChaos() {
   }
 
   if (chaosState.memoryStressMb > 0) {
-    retainedMemory = [Buffer.alloc(chaosState.memoryStressMb * 1024 * 1024, 7)];
+    retainedMemory = [Buffer.alloc(chaosState.memoryStressMb * 1024 * 1024, 3)];
   } else {
     retainedMemory = [];
   }
 
   if (chaosState.mode === "packet_loss" && Math.random() < chaosState.packetLossRate) {
-    const error = new Error("Simulated packet loss in account-service.");
+    const error = new Error("Simulated packet loss in risk-profile-service.");
     error.statusCode = 504;
     throw error;
   }
@@ -84,58 +89,57 @@ async function applyRequestChaos() {
         : Math.random() < chaosState.partialFailureRate;
 
     if (shouldFail) {
-      const error = new Error("Simulated partial failure in account-service.");
+      const error = new Error("Simulated partial failure in risk-profile-service.");
       error.statusCode = 503;
       throw error;
     }
   }
 }
 
-function getHealthStatus() {
-  if (chaosState.mode === "db_disconnect") {
-    return "DEGRADED";
-  }
-
-  if (
-    ["network_delay", "packet_loss", "cpu_stress", "memory_stress", "partial_failure"].includes(
-      chaosState.mode
-    )
-  ) {
-    return "DEGRADED";
-  }
-
-  return "UP";
-}
-
 app.get("/health", (_req, res) => {
+  const status =
+    chaosState.mode === "cache_disconnect"
+      ? "DEGRADED"
+      : ["network_delay", "packet_loss", "cpu_stress", "memory_stress", "partial_failure"].includes(
+            chaosState.mode
+          )
+        ? "DEGRADED"
+        : "UP";
+
   res.json({
-    service: "account-service",
-    status: getHealthStatus(),
-    dependency: "internal-account-db",
-    dependencyStatus: chaosState.mode === "db_disconnect" ? "DOWN" : "UP",
+    service: "risk-profile-service",
+    status,
+    dependency: "internal-risk-cache",
+    dependencyStatus: chaosState.mode === "cache_disconnect" ? "DOWN" : "UP",
     chaosMode: chaosState.mode
   });
 });
 
-app.get("/accounts/1", async (_req, res) => {
+app.get("/risk-profile/:accountId", async (req, res) => {
   try {
     await applyRequestChaos();
 
-    if (chaosState.mode === "db_disconnect") {
-      return res.status(503).json({
-        service: "account-service",
-        status: "DEGRADED",
-        message: "Account datastore unavailable due to simulated DB disconnect."
+    const accountId = req.params.accountId || "acc_1001";
+    const profile = profiles[accountId] || profiles.acc_1001;
+
+    if (chaosState.mode === "cache_disconnect") {
+      await sleep(700);
+      return res.json({
+        ...profile,
+        source: "fallback-risk-store",
+        cacheStatus: "DISCONNECTED",
+        degraded: true
       });
     }
 
     return res.json({
-      ...accountRecord,
-      dependencyStatus: "UP"
+      ...profile,
+      source: "risk-cache",
+      cacheStatus: "CONNECTED"
     });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      service: "account-service",
+    return res.status(error.statusCode || 503).json({
+      service: "risk-profile-service",
       status: "DEGRADED",
       message: error.message
     });
@@ -144,7 +148,7 @@ app.get("/accounts/1", async (_req, res) => {
 
 app.get("/chaos", (_req, res) => {
   res.json({
-    service: "account-service",
+    service: "risk-profile-service",
     chaos: chaosState
   });
 });
@@ -153,7 +157,7 @@ app.post("/chaos/configure", (req, res) => {
   chaosState = normalizeChaosConfig(req.body);
 
   res.json({
-    service: "account-service",
+    service: "risk-profile-service",
     chaos: chaosState,
     status: "configured"
   });
@@ -164,12 +168,12 @@ app.post("/chaos/reset", (_req, res) => {
   retainedMemory = [];
 
   res.json({
-    service: "account-service",
+    service: "risk-profile-service",
     chaos: chaosState,
     status: "reset"
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`[account-service] listening on port ${PORT}`);
+  console.log(`[risk-profile-service] listening on port ${PORT}`);
 });

@@ -743,6 +743,118 @@ button:disabled {
   white-space: normal;
 }
 
+.chain-list {
+  display: grid;
+  gap: 12px;
+}
+
+.form-grid {
+  margin-bottom: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.risk-score-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid rgba(244, 204, 106, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.risk-score-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.risk-score-summary strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.risk-bars {
+  display: grid;
+  gap: 12px;
+}
+
+.risk-bar-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr) 48px;
+  gap: 12px;
+  align-items: center;
+}
+
+.risk-bar-meta span,
+.risk-bar-meta small {
+  display: block;
+}
+
+.risk-bar-meta span {
+  color: #f8f5ee;
+  font-weight: 700;
+}
+
+.risk-bar-meta small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.risk-bar-track {
+  overflow: hidden;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.risk-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d9a02d, #ff6961);
+}
+
+.history-status-stack {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.history-status-stack small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .empty-state {
   display: grid;
   min-height: 94px;
@@ -753,6 +865,27 @@ button:disabled {
   background: rgba(255, 255, 255, 0.025);
   font-weight: 750;
   text-align: center;
+}
+
+.target-service-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.target-service-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+}
+
+.target-service-option input {
+  margin: 0;
 }
 
 @media (max-width: 1180px) {
@@ -768,6 +901,10 @@ button:disabled {
 
   .service-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .target-service-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -803,7 +940,8 @@ button:disabled {
   .service-row,
   .trace-grid,
   .recommendation-layout,
-  .metrics-grid {
+  .metrics-grid,
+  .risk-bar-row {
     grid-template-columns: 1fr;
   }
 
