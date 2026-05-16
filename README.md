@@ -165,6 +165,14 @@ curl -X POST http://localhost:4000/experiments/<EXPERIMENT_ID>/analyze
 
 Kaynak kodu değiştirdiğinizde `docker restart` **yetmez**, rebuild gerekir:
 
+##Ekler
+
+<img width="1710" height="983" alt="Ekran Resmi 2026-05-16 20 29 39" src="https://github.com/user-attachments/assets/57ece715-ed3b-4019-9ed8-4b8621fe723b" />
+
+<img width="1710" height="983" alt="Ekran Resmi 2026-05-16 20 31 25" src="https://github.com/user-attachments/assets/19279034-5bfd-4597-be86-733460340a3a" />
+
+
+
 ```bash
 docker compose up --build kintsugi-monkey-api -d
 ```
