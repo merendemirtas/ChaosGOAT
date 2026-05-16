@@ -4,12 +4,12 @@ import { Play, RotateCcw, Zap, ArrowRight, AlertTriangle } from "lucide-react";
 import { api } from "../api";
 
 const FLOW_STEPS = [
-  { id: "limit",      label: "Limit",      service: "limit-service" },
-  { id: "beneficiary",label: "Beneficiary",service: "beneficiary-service" },
-  { id: "fraud",      label: "Fraud",      service: "fraud-check-service" },
-  { id: "compliance", label: "Compliance", service: "compliance-service" },
-  { id: "notify",     label: "Notify",     service: "notification-service" },
-  { id: "approved",   label: "Done",       service: null },
+  { id: "limit",      label: "Limit",        service: "limit-service" },
+  { id: "beneficiary",label: "Lehdar",       service: "beneficiary-service" },
+  { id: "fraud",      label: "Dolandırıcılık",service: "fraud-check-service" },
+  { id: "compliance", label: "Uyumluluk",    service: "compliance-service" },
+  { id: "notify",     label: "Bildirim",     service: "notification-service" },
+  { id: "approved",   label: "Tamamlandı",   service: null },
 ];
 
 function Card({ title, children }) {
@@ -28,12 +28,13 @@ function Card({ title, children }) {
 
 function StatusBadge({ status }) {
   const c = { running: "#f0c040", completed: "#22d3a0", failed: "#ff4d6d" };
+  const label = { running: "Devam Ediyor", completed: "Tamamlandı", failed: "Başarısız" };
   const col = c[status] || "#888";
   return (
     <span style={{
       padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
       color: col, background: `${col}18`, border: `1px solid ${col}30`,
-    }}>{status}</span>
+    }}>{label[status] || status}</span>
   );
 }
 
@@ -138,13 +139,13 @@ export default function Scenarios() {
 
   async function inject() {
     if (!selectedMethod || !selectedService) {
-      setMsg({ text: "Servis ve chaos method seçiniz.", type: "error" });
+      setMsg({ text: "Servis ve kaos metodu seçiniz.", type: "error" });
       return;
     }
     setLoading(true); setMsg({ text: "", type: "info" });
     try {
       await api.inject({ service: selectedService, fault_type: selectedMethod, config });
-      setMsg({ text: "✓ Chaos başlatıldı.", type: "success" });
+      setMsg({ text: "✓ Kaos başlatıldı.", type: "success" });
       await load();
     } catch (e) { setMsg({ text: `Hata: ${e.message}`, type: "error" }); }
     setLoading(false);
@@ -171,13 +172,13 @@ export default function Scenarios() {
   return (
     <div style={{ padding: "24px 32px", maxWidth: 1100, margin: "0 auto" }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, color: "white", marginBottom: 4 }}>Senaryolar</h1>
-      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, marginBottom: 20 }}>Chaos mühendisliği kontrol paneli</p>
+      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, marginBottom: 20 }}>Kaos mühendisliği kontrol paneli</p>
 
       {/* Service Status */}
       <ServiceStatusGrid services={services}/>
 
       {/* Transaction Flow */}
-      <Card title="Transaction Flow">
+      <Card title="İşlem Akışı">
         <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto", paddingBottom: 8 }}>
           {FLOW_STEPS.map((step, i) => {
             const status = step.service ? (statusMap[step.service] || "UNKNOWN") : "UP";
@@ -208,7 +209,7 @@ export default function Scenarios() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
         {/* Chaos Engine */}
-        <Card title="Chaos Engine">
+        <Card title="Kaos Motoru">
           {running && (
             <div style={{
               background: "rgba(240,192,64,0.08)", border: "1px solid rgba(240,192,64,0.3)",
@@ -224,7 +225,7 @@ export default function Scenarios() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Method selector */}
             <div>
-              <label style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginBottom: 6, display: "block", letterSpacing: 0.5 }}>CHAOS METHOD</label>
+              <label style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginBottom: 6, display: "block", letterSpacing: 0.5 }}>KAOS METODU</label>
               <select
                 value={selectedMethod}
                 onChange={(e) => { setSelectedMethod(e.target.value); setConfig({}); }}
@@ -232,7 +233,7 @@ export default function Scenarios() {
                   width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)",
                   borderRadius: 8, padding: "9px 12px", color: "white", fontSize: 13,
                 }}>
-                <option value="" style={{ background: "#0d1428" }}>-- Seçiniz --</option>
+                <option value="" style={{ background: "#0d1428" }}>-- Metod Seçiniz --</option>
                 {methods.map((m) => (
                   <option key={m.code} value={m.code} style={{ background: "#0d1428" }}>
                     {m.label} [{m.category}]
@@ -358,10 +359,10 @@ export default function Scenarios() {
                 {recovering ? (
                   <>
                     <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#22d3a0", animation: "spin 0.8s linear infinite" }}/>
-                    Recovering...
+                    Kurtarılıyor...
                   </>
                 ) : (
-                  <><RotateCcw size={13}/> Recover</>
+                  <><RotateCcw size={13}/> Kurtar</>
                 )}
               </button>
             </div>
@@ -387,9 +388,9 @@ export default function Scenarios() {
               </div>
               {[
                 { label: "Hedef Servis", value: latest.target_service },
-                { label: "Chaos Method", value: latest.fault_type },
+                { label: "Kaos Metodu", value: latest.fault_type },
                 { label: "Etkilenen", value: latest.affected_service },
-                { label: "Recovery", value: latest.recovery_time_ms ? `${(latest.recovery_time_ms / 1000).toFixed(1)}s` : "—" },
+                { label: "Kurtarma Süresi", value: latest.recovery_time_ms ? `${(latest.recovery_time_ms / 1000).toFixed(1)}s` : "—" },
                 { label: "Başlangıç", value: latest.started_at ? new Date(latest.started_at).toLocaleTimeString("tr-TR") : "—" },
               ].map(({ label, value }) => (
                 <div key={label} style={{
@@ -415,7 +416,7 @@ export default function Scenarios() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr>
-                {["ID", "Hedef", "Method", "Durum", "Recovery", "Tarih"].map((h) => (
+                {["ID", "Hedef", "Metod", "Durum", "Kurtarma", "Tarih"].map((h) => (
                   <th key={h} style={{
                     textAlign: "left", padding: "8px 12px",
                     borderBottom: "1px solid rgba(255,255,255,0.06)",

@@ -6,11 +6,12 @@ const RISK_COLOR = { HIGH: "#ff4d6d", MEDIUM: "#f0c040", LOW: "#22d3a0", CRITICA
 
 function RiskBadge({ level }) {
   const c = RISK_COLOR[level] || "#888";
+  const labels = { HIGH: "YÜKSEK", MEDIUM: "ORTA", LOW: "DÜŞÜK", CRITICAL: "KRİTİK" };
   return (
     <span style={{
       padding: "3px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700,
       color: c, background: `${c}18`, border: `1px solid ${c}40`,
-    }}>{level || "—"}</span>
+    }}>{labels[level] || level || "—"}</span>
   );
 }
 
@@ -23,7 +24,7 @@ function AnalyzerBadge({ analyzer }) {
       background: isGemini ? "rgba(74,158,255,0.1)" : "rgba(255,255,255,0.06)",
       border: `1px solid ${isGemini ? "#4a9eff30" : "#ffffff15"}`,
     }}>
-      {isGemini ? "✦ Gemini AI" : "Fallback Analiz"}
+      {isGemini ? "✦ Gemini Yapay Zeka" : "Yedek Analiz"}
     </span>
   );
 }
@@ -93,7 +94,7 @@ function TraceCard({ trace, defaultOpen = false }) {
           </div>
 
           {/* Etki Alanı */}
-          <Section icon={<Target size={13} color="#f0c040"/>} title="Blast Radius / Etki Alanı" color="#f0c040">
+          <Section icon={<Target size={13} color="#f0c040"/>} title="Etki Alanı" color="#f0c040">
             <div style={{
               background: "rgba(240,192,64,0.06)", border: "1px solid rgba(240,192,64,0.15)",
               borderRadius: 10, padding: "12px 16px",
@@ -140,7 +141,7 @@ function TraceCard({ trace, defaultOpen = false }) {
 
           {/* Sonraki Deneyler */}
           {nextExps.length > 0 && (
-            <Section icon={<TrendingUp size={13} color="#c084fc"/>} title="Önerilen Sonraki Deneyler" color="#c084fc">
+            <Section icon={<TrendingUp size={13} color="#c084fc"/>} title="Sonraki Deneyler" color="#c084fc">
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {nextExps.map((e, i) => (
                   <div key={i} style={{
@@ -327,7 +328,7 @@ export default function AISuggestions() {
           marginBottom: 16, textTransform: "uppercase",
           display: "flex", alignItems: "center", gap: 8,
         }}>
-          <Brain size={15}/> Golden Trace Geçmişi ({traces.length})
+          <Brain size={15}/> Altın İz Geçmişi ({traces.length})
         </h3>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

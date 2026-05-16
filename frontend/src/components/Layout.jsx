@@ -90,7 +90,7 @@ export default function Layout({ children }) {
         {/* Right status dot */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22d3a0", boxShadow: "0 0 6px #22d3a0" }}/>
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: 0.5 }}>LIVE</span>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: 0.5 }}>CANLI</span>
         </div>
       </nav>
 

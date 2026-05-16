@@ -137,10 +137,10 @@ export default function Reports() {
               </p>
               {latestScore && (
                 <>
-                  <ScoreBar label="Recovery Speed" value={latestScore.recovery_speed_score} color="#22d3a0"/>
-                  <ScoreBar label="Fallback Quality" value={latestScore.fallback_quality_score} color="#4a9eff"/>
-                  <ScoreBar label="Blast Radius" value={latestScore.blast_radius_score} color="#f0c040"/>
-                  <ScoreBar label="Detection Speed" value={latestScore.detection_speed_score} color="#c084fc"/>
+                  <ScoreBar label="Kurtarma Hızı" value={latestScore.recovery_speed_score} color="#22d3a0"/>
+                  <ScoreBar label="Yedek Kalitesi" value={latestScore.fallback_quality_score} color="#4a9eff"/>
+                  <ScoreBar label="Etki Alanı" value={latestScore.blast_radius_score} color="#f0c040"/>
+                  <ScoreBar label="Tespit Hızı" value={latestScore.detection_speed_score} color="#c084fc"/>
                 </>
               )}
             </div>
@@ -209,7 +209,7 @@ export default function Reports() {
               <LineChart data={recoveryData}>
                 <XAxis dataKey="name" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} axisLine={false} tickLine={false}/>
                 <YAxis tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} axisLine={false} tickLine={false}/>
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${v}s`, "Recovery"]}/>
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${v}s`, "Kurtarma"]}/>
                 <Line type="monotone" dataKey="recovery" stroke="#4a9eff" strokeWidth={2}
                   dot={{ fill: "#4a9eff", r: 4, strokeWidth: 0 }}
                   activeDot={{ r: 6, fill: "#4a9eff", boxShadow: "0 0 8px #4a9eff" }}/>

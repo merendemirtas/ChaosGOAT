@@ -1,26 +1,26 @@
 import { useMemo } from "react";
 
 const NODES = [
-  { id: "account-service",      label: "Account",      x: 420, y: 60,  criticality: "HIGH" },
+  { id: "account-service",      label: "Hesap",      x: 420, y: 60,  criticality: "HIGH" },
   { id: "limit-service",        label: "Limit",        x: 160, y: 200, criticality: "HIGH" },
-  { id: "beneficiary-service",  label: "Beneficiary",  x: 420, y: 200, criticality: "HIGH" },
-  { id: "compliance-service",   label: "Compliance",   x: 680, y: 200, criticality: "HIGH" },
-  { id: "transaction-service",  label: "Transaction",  x: 420, y: 360, criticality: "HIGH" },
-  { id: "notification-service", label: "Notification", x: 720, y: 360, criticality: "LOW" },
-  { id: "fraud-check-service",  label: "Fraud Check",  x: 180, y: 360, criticality: "HIGH" },
-  { id: "risk-profile-service", label: "Risk Profile", x: 60,  y: 480, criticality: "MEDIUM" },
+  { id: "beneficiary-service",  label: "Lehdar",  x: 420, y: 200, criticality: "HIGH" },
+  { id: "compliance-service",   label: "Uyumluluk",   x: 680, y: 200, criticality: "HIGH" },
+  { id: "transaction-service",  label: "İşlem",  x: 420, y: 360, criticality: "HIGH" },
+  { id: "notification-service", label: "Bildirim", x: 720, y: 360, criticality: "LOW" },
+  { id: "fraud-check-service",  label: "Dolandırıcılık",  x: 180, y: 360, criticality: "HIGH" },
+  { id: "risk-profile-service", label: "Risk Profili", x: 60,  y: 480, criticality: "MEDIUM" },
 ];
 
 const EDGES = [
-  { from: "transaction-service",  to: "fraud-check-service",  label: "fraud check" },
-  { from: "transaction-service",  to: "limit-service",        label: "limit check" },
-  { from: "transaction-service",  to: "beneficiary-service",  label: "validation" },
-  { from: "transaction-service",  to: "compliance-service",   label: "compliance" },
-  { from: "transaction-service",  to: "notification-service", label: "notify" },
-  { from: "fraud-check-service",  to: "risk-profile-service", label: "risk lookup" },
-  { from: "limit-service",        to: "account-service",      label: "account" },
-  { from: "beneficiary-service",  to: "account-service",      label: "account" },
-  { from: "compliance-service",   to: "account-service",      label: "account" },
+  { from: "transaction-service",  to: "fraud-check-service",  label: "Dolandırıcılık Kontrolü" },
+  { from: "transaction-service",  to: "limit-service",        label: "Limit Kontrolü" },
+  { from: "transaction-service",  to: "beneficiary-service",  label: "Doğrulama" },
+  { from: "transaction-service",  to: "compliance-service",   label: "Uyumluluk" },
+  { from: "transaction-service",  to: "notification-service", label: "Bildirim" },
+  { from: "fraud-check-service",  to: "risk-profile-service", label: "Risk Sorgusu" },
+  { from: "limit-service",        to: "account-service",      label: "Hesap" },
+  { from: "beneficiary-service",  to: "account-service",      label: "Hesap" },
+  { from: "compliance-service",   to: "account-service",      label: "Hesap" },
 ];
 
 function nodeColor(status) {
