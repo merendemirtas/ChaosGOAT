@@ -13,12 +13,12 @@ const METHOD_SEVERITY = {
 };
 
 // Kalibrasyon: Google SRE Error Budget + Netflix Resilience Score yaklaşımı
-// LOW  < 32 : Fallback çalıştı, kurtarma hızlı, blast radius dar
-// MEDIUM 32–62: Bozunma gözlemlendi, kurtarma kabul edilebilir
-// HIGH > 62 : Tam kesinti, uzun kurtarma, geniş etki
+// LOW  < 28 : Fallback çalıştı, kurtarma hızlı, blast radius dar, hata oranı < %20
+// MEDIUM 28–50: Bozunma gözlemlendi, kurtarma kabul edilebilir, orta hata oranı
+// HIGH > 50 : Tam kesinti, yüksek hata oranı (>%60), geniş blast radius veya kritik servis
 const RISK_THRESHOLDS = {
-  LOW: 32,
-  MEDIUM: 62
+  LOW: 28,
+  MEDIUM: 50
 };
 
 function clamp(value, min, max) {
@@ -121,10 +121,13 @@ function computeRiskProfile(experiment, detail) {
   const requestCount = Number(summary.requestCount || experiment.request_count || 0);
   const failedCount = Number(summary.failedRequests || experiment.failed_count || 0);
   const degradedCount = Number(summary.degradedRequests || experiment.degraded_count || 0);
+  // Gerçek bozulma: başarısız + fallback'e düşen. Degraded = manuel review = bankacılık açısından risk
+  const disruptedCount = failedCount + degradedCount;
   const averageLatencyMs = Number(summary.averageLatencyMs || experiment.average_latency_ms || 0);
   const p95LatencyMs = Number(summary.p95LatencyMs || experiment.p95_latency_ms || 0);
   const recoveryTimeMs = Number(experiment.recovery_time_ms || 0);
-  const safeDegradation = Boolean(summary.fallbackUsed || experiment.safe_degradation);
+  // Gerçek runtime fallback kullanımına göre — statik mesaj alanı değil
+  const safeDegradation = Boolean(summary.fallbackUsed || degradedCount > 0);
   const blastRadiusCount = affectedServices.length;
   const impactNodes = [
     ...new Set([...targetServices, experiment.affected_service, ...affectedServices].filter(Boolean))
@@ -164,23 +167,25 @@ function computeRiskProfile(experiment, detail) {
       "Kritik servisler nihai risk skoruna daha fazla katkıda bulunur."
     ),
     // Blast radius — Netflix: etkilenen servis yüzdesi
+    // Ağırlık artırıldı: cascade failures en önemli sinyallerden biri
     buildRiskMetric(
       "blast_radius",
       "Etki Alanı (Blast Radius)",
       blastRadiusCount,
       blastRadiusCount === 0 ? 5 :
       clamp((blastRadiusCount / Math.max(1, totalServices - 1)) * 100, 0, 100),
-      0.18,
+      0.20,
       "Etkilenen servis sayısı arttıkça patlama yarıçapı genişler."
     ),
-    // Hata oranı — AWS: başarısız istek yüzdesi
+    // Hata/bozunma oranı — failed + degraded birlikte değerlendiriliyor
+    // Degraded (manuel review) da bankacılık açısından servis kesintisidir
     buildRiskMetric(
       "failure_rate",
-      "Hata Oranı (%)",
-      requestCount ? `${Math.round((failedCount / requestCount) * 100)}%` : "0%",
-      requestCount > 0 ? normalizeRate(failedCount / requestCount, 1.5) : 0,
-      0.20,
-      "Yüksek hata oranı, graceful degradation eksikliğine işaret eder.",
+      "Hata/Bozunma Oranı (%)",
+      requestCount ? `${Math.round((disruptedCount / requestCount) * 100)}%` : "0%",
+      requestCount > 0 ? normalizeRate(disruptedCount / requestCount, 1.5) : 0,
+      0.25,
+      "Başarısız + fallback'e düşen istek oranı. Yüksek değer servis kesintisine işaret eder.",
       requestCount > 0
     ),
     // Bozunma oranı — fallback'e düşen istek yüzdesi
@@ -189,7 +194,7 @@ function computeRiskProfile(experiment, detail) {
       "Bozunma Oranı (%)",
       requestCount ? `${Math.round((degradedCount / requestCount) * 100)}%` : "0%",
       requestCount > 0 ? normalizeRate(degradedCount / requestCount, 1.2) : 0,
-      0.12,
+      0.10,
       "Kullanıcıların fallback akışına yönlendirilme oranı.",
       requestCount > 0
     ),
@@ -227,20 +232,20 @@ function computeRiskProfile(experiment, detail) {
       "Eşzamanlı Hedef Sayısı",
       targetServices.length,
       clamp((targetServices.length / 3) * 100, 0, 100),
-      0.08,
+      0.07,
       "Birden fazla servisi aynı anda kırmak risk skorunu hızlandırır.",
       targetServices.length > 0
     )
   ];
 
-  // Safe degradation — çalışan fallback riski önemli ölçüde düşürür
-  // Netflix: "Fallback is gold" — iyi bir fallback LOW riske kapı açmalı
+  // Safe degradation — fallback riski düşürür ama yüksek hata ortamını maskeleyemez
+  // -0.10 → -0.07: LOW senaryolarda hâlâ etkili, HIGH senaryolarda dominantlığı kırılmaz
   const safeDegradationMetric = buildRiskMetric(
     "safe_degradation_relief",
     "Güvenli Bozunma Kalitesi",
     safeDegradation ? "aktif" : "pasif",
     safeDegradation ? 50 : 0,
-    -0.10,   // Önceki -0.03'ten çok daha etkili
+    -0.07,
     "Etkin fallback, sistem güvenli kaldığı için nihai riski düşürür.",
     safeDegradation
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, RotateCcw, Zap, ArrowRight, AlertTriangle } from "lucide-react";
+import { Play, RotateCcw, Zap, ArrowRight, AlertTriangle, Flame, ShieldCheck } from "lucide-react";
 import { api } from "../api";
 
 const FLOW_STEPS = [
@@ -316,57 +316,202 @@ export default function Scenarios() {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-              <button onClick={inject} disabled={loading || !!running || !selectedMethod}
-                style={{
-                  flex: 1, padding: "12px", borderRadius: 10, border: "none",
-                  cursor: (loading || running || !selectedMethod) ? "not-allowed" : "pointer",
-                  background: loading
-                    ? "rgba(255,77,109,0.2)"
-                    : (running || !selectedMethod)
-                      ? "rgba(255,255,255,0.06)"
-                      : "linear-gradient(135deg,#ff4d6d,#c0213a)",
-                  color: (running || !selectedMethod) ? "rgba(255,255,255,0.3)" : "white",
-                  fontWeight: 700, fontSize: 13,
-                  boxShadow: (!running && selectedMethod && !loading) ? "0 0 20px rgba(255,77,109,0.25)" : "none",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                  transition: "all 0.2s",
-                }}>
-                {loading ? (
-                  <>
-                    <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#ff4d6d", animation: "spin 0.8s linear infinite" }}/>
-                    Başlatılıyor...
-                  </>
-                ) : (
-                  <><Play size={13}/> Chaos Başlat</>
-                )}
-              </button>
-              <button onClick={recover} disabled={recovering || !running}
-                style={{
-                  flex: 1, padding: "12px", borderRadius: 10, border: "none",
-                  cursor: (!running || recovering) ? "not-allowed" : "pointer",
-                  background: recovering
-                    ? "rgba(34,211,160,0.15)"
-                    : !running
-                      ? "rgba(255,255,255,0.04)"
-                      : "linear-gradient(135deg,#22d3a0,#0e9e78)",
-                  color: !running ? "rgba(255,255,255,0.25)" : "white",
-                  fontWeight: 700, fontSize: 13,
-                  boxShadow: (running && !recovering) ? "0 0 20px rgba(34,211,160,0.2)" : "none",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                  transition: "all 0.2s",
-                }}>
-                {recovering ? (
-                  <>
-                    <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#22d3a0", animation: "spin 0.8s linear infinite" }}/>
-                    Kurtarılıyor...
-                  </>
-                ) : (
-                  <><RotateCcw size={13}/> Kurtar</>
-                )}
-              </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+              {/* CHAOS BAŞLAT */}
+              {(() => {
+                const disabled = loading || !!running || !selectedMethod;
+                const isLoading = loading;
+                return (
+                  <button
+                    onClick={inject}
+                    disabled={disabled}
+                    className={!disabled ? "chaos-btn-fire" : ""}
+                    style={{
+                      position: "relative", overflow: "hidden",
+                      width: "100%", padding: "16px 20px",
+                      borderRadius: 14,
+                      border: disabled
+                        ? "1px solid rgba(255,255,255,0.07)"
+                        : "1px solid rgba(255,77,109,0.5)",
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      background: disabled
+                        ? "rgba(255,255,255,0.04)"
+                        : isLoading
+                          ? "rgba(255,77,109,0.15)"
+                          : "linear-gradient(135deg, rgba(255,77,109,0.22) 0%, rgba(192,33,58,0.28) 100%)",
+                      color: disabled ? "rgba(255,255,255,0.2)" : "white",
+                      fontWeight: 700, fontSize: 14, letterSpacing: 0.4,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                      transition: "all 0.25s ease",
+                      boxShadow: disabled ? "none" : "0 0 0 1px rgba(255,77,109,0.15) inset, 0 4px 24px rgba(255,77,109,0.18)",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!disabled) {
+                        e.currentTarget.style.background = "linear-gradient(135deg, rgba(255,77,109,0.35) 0%, rgba(192,33,58,0.45) 100%)";
+                        e.currentTarget.style.boxShadow = "0 0 0 1px rgba(255,77,109,0.4) inset, 0 6px 32px rgba(255,77,109,0.35)";
+                        e.currentTarget.style.transform = "translateY(-1px)";
+                        e.currentTarget.style.borderColor = "rgba(255,77,109,0.8)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!disabled) {
+                        e.currentTarget.style.background = "linear-gradient(135deg, rgba(255,77,109,0.22) 0%, rgba(192,33,58,0.28) 100%)";
+                        e.currentTarget.style.boxShadow = "0 0 0 1px rgba(255,77,109,0.15) inset, 0 4px 24px rgba(255,77,109,0.18)";
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.borderColor = "rgba(255,77,109,0.5)";
+                      }
+                    }}
+                  >
+                    {isLoading ? (
+                      <>
+                        <span style={{
+                          display: "inline-block", width: 16, height: 16, borderRadius: "50%",
+                          border: "2px solid rgba(255,77,109,0.3)",
+                          borderTopColor: "#ff4d6d",
+                          animation: "spin 0.7s linear infinite",
+                          flexShrink: 0,
+                        }}/>
+                        <span style={{ color: "#ff8fa3" }}>Başlatılıyor...</span>
+                        <span style={{
+                          position: "absolute", inset: 0, borderRadius: 14,
+                          background: "linear-gradient(90deg, transparent 0%, rgba(255,77,109,0.08) 50%, transparent 100%)",
+                          animation: "shimmer 1.4s ease infinite",
+                          pointerEvents: "none",
+                        }}/>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          width: 32, height: 32, borderRadius: 8,
+                          background: disabled ? "rgba(255,255,255,0.04)" : "rgba(255,77,109,0.2)",
+                          border: disabled ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(255,77,109,0.35)",
+                          flexShrink: 0,
+                          transition: "all 0.2s",
+                        }}>
+                          <Flame size={15} color={disabled ? "rgba(255,255,255,0.2)" : "#ff6b85"}/>
+                        </span>
+                        <span style={{ flex: 1, textAlign: "left" }}>Chaos Başlat</span>
+                        {!disabled && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, letterSpacing: 0.8,
+                            color: "rgba(255,107,133,0.7)", textTransform: "uppercase",
+                          }}>
+                            {selectedMethodObj?.category || ""}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
+
+              {/* KURTARMA BAŞLAT */}
+              {(() => {
+                const disabled = !running || recovering;
+                const isRecovering = recovering;
+                return (
+                  <button
+                    onClick={recover}
+                    disabled={disabled}
+                    style={{
+                      position: "relative", overflow: "hidden",
+                      width: "100%", padding: "16px 20px",
+                      borderRadius: 14,
+                      border: disabled
+                        ? "1px solid rgba(255,255,255,0.07)"
+                        : "1px solid rgba(34,211,160,0.45)",
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      background: disabled
+                        ? "rgba(255,255,255,0.04)"
+                        : isRecovering
+                          ? "rgba(34,211,160,0.12)"
+                          : "linear-gradient(135deg, rgba(34,211,160,0.18) 0%, rgba(14,158,120,0.24) 100%)",
+                      color: disabled ? "rgba(255,255,255,0.2)" : "white",
+                      fontWeight: 700, fontSize: 14, letterSpacing: 0.4,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                      transition: "all 0.25s ease",
+                      boxShadow: disabled ? "none" : "0 0 0 1px rgba(34,211,160,0.12) inset, 0 4px 24px rgba(34,211,160,0.14)",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!disabled) {
+                        e.currentTarget.style.background = "linear-gradient(135deg, rgba(34,211,160,0.3) 0%, rgba(14,158,120,0.38) 100%)";
+                        e.currentTarget.style.boxShadow = "0 0 0 1px rgba(34,211,160,0.35) inset, 0 6px 32px rgba(34,211,160,0.28)";
+                        e.currentTarget.style.transform = "translateY(-1px)";
+                        e.currentTarget.style.borderColor = "rgba(34,211,160,0.75)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!disabled) {
+                        e.currentTarget.style.background = "linear-gradient(135deg, rgba(34,211,160,0.18) 0%, rgba(14,158,120,0.24) 100%)";
+                        e.currentTarget.style.boxShadow = "0 0 0 1px rgba(34,211,160,0.12) inset, 0 4px 24px rgba(34,211,160,0.14)";
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.borderColor = "rgba(34,211,160,0.45)";
+                      }
+                    }}
+                  >
+                    {isRecovering ? (
+                      <>
+                        <span style={{
+                          display: "inline-block", width: 16, height: 16, borderRadius: "50%",
+                          border: "2px solid rgba(34,211,160,0.25)",
+                          borderTopColor: "#22d3a0",
+                          animation: "spin 0.7s linear infinite",
+                          flexShrink: 0,
+                        }}/>
+                        <span style={{ color: "#6eecd5" }}>Kurtarılıyor...</span>
+                        <span style={{
+                          position: "absolute", inset: 0, borderRadius: 14,
+                          background: "linear-gradient(90deg, transparent 0%, rgba(34,211,160,0.07) 50%, transparent 100%)",
+                          animation: "shimmer 1.4s ease infinite",
+                          pointerEvents: "none",
+                        }}/>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          width: 32, height: 32, borderRadius: 8,
+                          background: disabled ? "rgba(255,255,255,0.04)" : "rgba(34,211,160,0.18)",
+                          border: disabled ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(34,211,160,0.3)",
+                          flexShrink: 0,
+                          transition: "all 0.2s",
+                        }}>
+                          <ShieldCheck size={15} color={disabled ? "rgba(255,255,255,0.2)" : "#22d3a0"}/>
+                        </span>
+                        <span style={{ flex: 1, textAlign: "left" }}>Kurtarmayı Başlat</span>
+                        {running && (
+                          <span style={{
+                            display: "flex", alignItems: "center", gap: 5,
+                            fontSize: 10, color: "rgba(34,211,160,0.65)",
+                            fontWeight: 600, letterSpacing: 0.6, textTransform: "uppercase",
+                          }}>
+                            <span style={{
+                              width: 6, height: 6, borderRadius: "50%",
+                              background: "#ff4d6d",
+                              animation: "pulse-dot 1.2s ease-in-out infinite",
+                              display: "inline-block",
+                            }}/>
+                            aktif
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <style>{`
+              @keyframes spin { to { transform: rotate(360deg); } }
+              @keyframes shimmer {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(100%); }
+              }
+              @keyframes pulse-dot {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.4; transform: scale(0.7); }
+              }
+            `}</style>
             {msg.text && (
               <p style={{
                 color: msg.type === "error" ? "#ff4d6d" : msg.type === "success" ? "#22d3a0" : "#f0c040",

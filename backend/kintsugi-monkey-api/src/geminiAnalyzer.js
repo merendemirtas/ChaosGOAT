@@ -19,7 +19,7 @@ function buildGeminiPrompt(payload) {
   const metricSummary = computedScore !== null ? `
 DETERMINISTIK RİSK SKORU (riskModel.js çıktısı):
   - Hesaplanan Skor: ${computedScore.toFixed(1)} / 100
-  - Eşik Değerleri: DÜŞÜK < 32, ORTA 32-62, YÜKSEK > 62
+  - Eşik Değerleri: DÜŞÜK < 28, ORTA 28-50, YÜKSEK > 50
   - Model Kararı: ${computedLevel}
   - MTTR: ${mttr?.rawValue || "?"} (Normalize: ${mttr?.normalizedValue?.toFixed(0) || "?"})
   - Hata Oranı: ${failureRate?.rawValue || "0%"} (Normalize: ${failureRate?.normalizedValue?.toFixed(0) || "0"})
@@ -32,14 +32,14 @@ DETERMINISTIK RİSK SKORU (riskModel.js çıktısı):
 ${metricSummary}
 
 RİSK SEVİYESİ KILAVUZU (büyük şirketlerin kullandığı kriterler):
-- DÜŞÜK: Kurtarma < 30s VE fallback çalıştı VE hata oranı < %20 VE yalnızca 1 servis etkilendi VE düşük/orta kritiklik → Sistem tasarlandığı gibi davrandı.
-- ORTA: Kurtarma 30s-3dk VEYA fallback tetiklendi ama tam değil VEYA hata oranı %20-60 VEYA 2 servis etkilendi → İyileştirme alanı var.
-- YÜKSEK: Kurtarma > 3dk VEYA fallback yok/başarısız VEYA hata oranı > %60 VEYA 3+ kritik servis etkilendi → Acil aksiyon gerekli.
+- DÜŞÜK (skor < 28): Kurtarma < 30s VE fallback çalıştı VE hata oranı < %20 VE yalnızca 1 servis etkilendi VE düşük/orta kritiklik → Sistem tasarlandığı gibi davrandı.
+- ORTA (skor 28-50): Kurtarma 30s-3dk VEYA fallback tetiklendi ama tam değil VEYA hata oranı %20-60 VEYA 2 servis etkilendi → İyileştirme alanı var.
+- YÜKSEK (skor > 50): Kurtarma > 3dk VEYA fallback yok/başarısız VEYA hata oranı > %50 VEYA 3+ kritik servis etkilendi VEYA yüksek kritiklik servisi tamamen çöktü → Acil aksiyon gerekli.
 
 ÖNEMLİ: Deterministik skor ${computedLevel} gösteriyorsa sen de aynı seviyeyi kullan. Veriler DÜŞÜK risk gösteriyorsa DÜŞÜK yaz — kaos deneyi olduğu için otomatik olarak YÜKSEK yazma.
 
 HATA OLASILĞI KURALLARI (her deneye özgü, gerçekçi):
-- current_failure_probability: Gözlemlenen metriklere göre (MTTR, hata oranı, blast radius, fallback kalitesi) bu sistem bileşeninin benzer koşullarda arıza verme olasılığı. DÜŞÜK risk ise 5-28, ORTA ise 28-60, YÜKSEK ise 60-90 aralığında olmalı.
+- current_failure_probability: Gözlemlenen metriklere göre (MTTR, hata oranı, blast radius, fallback kalitesi) bu sistem bileşeninin benzer koşullarda arıza verme olasılığı. DÜŞÜK risk ise 5-25, ORTA ise 25-55, YÜKSEK ise 50-90 aralığında olmalı.
 - improved_failure_probability: Öneriler uygulandıktan sonra beklenen olasılık. Mevcut değerden en az 12, en fazla 45 puan düşük olmalı.
 - probability_reasoning: Deney verilerini (MTTR=${mttr?.rawValue || "?"}, hata oranı=${failureRate?.rawValue || "0%"}) referans alarak 1-2 cümle Türkçe açıklama.
 
